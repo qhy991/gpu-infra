@@ -92,6 +92,5 @@ or ledger into Kernel Infra.
 python3 -m unittest discover -s tests -v
 ```
 
-`ci/github-actions.yml` is the ready-to-enable GitHub Actions definition for
-Python 3.10, 3.11, and 3.12. Move it to `.github/workflows/ci.yml` when the
-repository credential used for that change has GitHub's `workflow` scope.
+`.github/workflows/ci.yml` runs the same contract suite and checked-task
+validation on Python 3.10, 3.11, and 3.12.

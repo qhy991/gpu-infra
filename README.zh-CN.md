@@ -82,6 +82,5 @@ v0.1 面向同一 Unix 身份下相互信任的 Agent，并在每个 GPU 节点�
 python3 -m unittest discover -s tests -v
 ```
 
-`ci/github-actions.yml` 是覆盖 Python 3.10、3.11、3.12 的 GitHub Actions
-定义。用于提交该变更的仓库凭据具备 GitHub `workflow` scope 后，将它移动到
-`.github/workflows/ci.yml` 即可启用。
+`.github/workflows/ci.yml` 会在 Python 3.10、3.11、3.12 上运行同一套合同测试
+与 checked-task 校验。
