@@ -1,0 +1,109 @@
+# Kernel Infra v0.1 design contract
+
+## Goal
+
+Let several coding agents submit immutable kernel candidates without waiting on
+GPU availability, run independent staged judges through one reusable per-host
+GPU allocator, and receive durable evidence that keeps execution completion,
+kernel validity, and performance-frontier decisions separate.
+
+## Smallest primitive set
+
+1. **Task contract**: fixed workloads, comparison policy, judge identities, and
+   ordered stages.
+2. **Candidate snapshot**: a content-addressed, self-contained copy made before
+   queueing.
+3. **Run**: one task digest plus one candidate digest.
+4. **Stage**: one judge command plus either a broker resource request or a
+   CPU-only request to an already broker-managed evaluator service.
+5. **Receipt**: immutable request identity plus observed lifecycle and exit.
+6. **Result**: validated judge output; absence or malformation is an
+   infrastructure error, never a failed correctness claim.
+7. **Frontier**: a rebuildable per-workload projection over eligible results.
+
+No separate campaign state, agent memory, or experiment database is required
+for v0.1. Agents can submit several runs, and a task digest groups the comparable
+set.
+
+## Canonical owners
+
+| Fact | Owner |
+| --- | --- |
+| GPU queue and allocation | `agent-gpu-broker` daemon |
+| Workloads, judges, gates, resource modes | checked task JSON |
+| Candidate source used by a run | content-addressed run snapshot |
+| Run lifecycle | `kernel-infrad` run state and event log |
+| Correctness and raw timing | the named stage judge's result JSON |
+| Cross-run best per workload | derived `frontier.json` |
+
+Kernel Infra never edits evaluator code, selects a winner from agent prose, or
+uses a live aggregate score as the factual timing owner.
+
+## Execution path
+
+```text
+Agent submit
+  -> kernel-infrad snapshots task + candidate and returns run_id
+  -> one background gpu-run call per direct stage, or CPU request to a
+     broker-held evaluator service
+  -> agent-gpu-broker queues shared/exclusive capacity
+  -> independent judge writes stage-result.v1
+  -> kernel-infrad validates and aggregates run-result.v1
+  -> frontier reducer compares valid, stable, same-task-digest runs
+```
+
+Multiple runs advance concurrently. Correctness stages may overlap under the
+broker's bounded `shared` capacity; a benchmark or profiler stage requests
+`exclusive` capacity and waits without occupying the submitting agent.
+
+## Invariants
+
+1. A run's task and candidate digests cannot change after acceptance.
+2. Every direct GPU stage goes through `gpu-run`; an external evaluator service
+   must itself be a broker-held long-running job. The control plane never
+   assigns a physical GPU.
+3. Later stages run only after the previous stage returns a valid `passed`
+   result.
+4. A process exit of zero without a valid judge result is an infrastructure
+   error.
+5. Cancellation interrupts `gpu-run`, which asks the broker to cancel and
+   release its allocation.
+6. Daemon restart marks unfinished runs `interrupted`; it does not invent
+   recovery or resubmit work.
+7. Only `completed + valid + complete workload timing` results enter the
+   frontier reducer.
+8. Frontier comparison never crosses task digests.
+
+## Failure semantics
+
+- Broker unreachable, queue timeout, run timeout, judge crash, missing result,
+  malformed result, daemon restart: run validity is `unknown`; frontier closed.
+- Judge reports incorrect: validity is `invalid`; later stages do not run.
+- Judge passes correctness but a later benchmark fails: correctness remains
+  recorded, run outcome is not completed, frontier closed.
+- Measurement marked unstable: correctness may be valid, but frontier decision
+  is `measurement-unstable`.
+- Candidate contains a symlink or unsupported special file: reject before
+  queueing so the snapshot is self-contained.
+
+## Deliberate exclusions
+
+v0.1 is a trusted single-host service. It records but does not automatically
+attest that a `service` stage's evaluator deployment is broker-held. It does not
+provide hostile tenant isolation, a cross-host global scheduler,
+priority/preemption, GPU memory quotas, automatic agent spawning, evaluator
+implementation, or live-run recovery after daemon failure. Remote use runs one
+service beside one broker and reaches it via SSH. Cross-host routing is admitted
+only after this node contract is proven on a real A800 run.
+
+## Acceptance evidence
+
+- Submit returns a run id before GPU execution completes.
+- Two shared correctness stages overlap on one broker-managed card when
+  capacity is two.
+- Their exclusive benchmark stages serialize on that card.
+- Both runs preserve task/candidate digests, per-stage logs, broker job ids,
+  judge results, final results, and a rebuildable per-workload frontier.
+- An incorrect candidate never reaches its benchmark stage.
+- Missing/malformed judge output is reported as infrastructure failure rather
+  than incorrectness or success.

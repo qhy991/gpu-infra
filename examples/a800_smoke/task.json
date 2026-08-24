@@ -1,0 +1,45 @@
+{
+  "schema": "kernelinfra.task.v1",
+  "task_id": "a800-vector-add-smoke",
+  "description": "Infrastructure-only A800 smoke; not a kernel performance claim.",
+  "workloads": ["vector-1048576"],
+  "comparison": {
+    "primary_workloads": ["vector-1048576"],
+    "guardrails": {"vector-1048576": 0.5},
+    "relative_noise_floor": 0.1
+  },
+  "stages": [
+    {
+      "id": "correctness",
+      "kind": "correctness",
+      "judge": {
+        "identity": "a800-smoke-evaluator@sha256:7020635f429c5015b1c73320229aaa1b194f1e4d9e51ded87cda26a8952adb0d",
+        "cwd": ".",
+        "command": ["python3", "evaluator.py"]
+      },
+      "resources": {
+        "mode": "shared",
+        "gpu_count": 1,
+        "estimate_s": 8,
+        "queue_timeout_s": 600,
+        "run_timeout_s": 120
+      }
+    },
+    {
+      "id": "benchmark",
+      "kind": "benchmark",
+      "judge": {
+        "identity": "a800-smoke-evaluator@sha256:7020635f429c5015b1c73320229aaa1b194f1e4d9e51ded87cda26a8952adb0d",
+        "cwd": ".",
+        "command": ["python3", "evaluator.py"]
+      },
+      "resources": {
+        "mode": "exclusive",
+        "gpu_count": 1,
+        "estimate_s": 15,
+        "queue_timeout_s": 600,
+        "run_timeout_s": 180
+      }
+    }
+  ]
+}
