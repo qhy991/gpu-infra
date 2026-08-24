@@ -15,6 +15,8 @@ v0.1 不复制已有能力：
 
 完整所有权、失败语义和非目标见 [DESIGN.md](DESIGN.md)。
 首个真实节点验收见 [A800 pilot](docs/a800-pilot-2026-08-24.md)。
+从 GitHub 发布 commit 重新取源后的验收见
+[GitHub-release A800 qualification](docs/github-release-a800-2026-08-24.md)。
 
 ## 最小使用方式
 

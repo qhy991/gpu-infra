@@ -17,7 +17,8 @@ The first release deliberately reuses existing owners:
 
 See [DESIGN.md](DESIGN.md) for the frozen v0.1 contract and
 [README.zh-CN.md](README.zh-CN.md) for the Chinese guide. The first real-node
-acceptance record is [the A800 pilot](docs/a800-pilot-2026-08-24.md).
+acceptance records are [the initial A800 pilot](docs/a800-pilot-2026-08-24.md)
+and the [GitHub-release A800 qualification](docs/github-release-a800-2026-08-24.md).
 
 ## Quick start
 
