@@ -53,6 +53,8 @@ The v0.14.0 one-probe parallel fleet submission qualification is
 [the fleet-submit-many report](docs/v0.14.0-fleet-submit-many-qualification-2026-08-25.md).
 The v0.15.0 terminal multi-route collection qualification is
 [the fleet-collect report](docs/v0.15.0-fleet-collect-qualification-2026-08-25.md).
+The v0.16.0 managed-service compatibility preflight qualification is
+[the service-preflight report](docs/v0.16.0-service-preflight-qualification-2026-08-25.md).
 The evaluator adapters and their trust boundaries are documented in
 [the integration guide](docs/integrations.md).
 
