@@ -55,6 +55,8 @@ v0.16.0 managed-service compatibility preflight 验收见
 [service-preflight 报告](docs/v0.16.0-service-preflight-qualification-2026-08-25.md)。
 版本化 Agent 使用入口见
 [Kernel Infra skill 验收](docs/kernel-infra-agent-skill-qualification-2026-08-25.md)。
+当前默认分支、生产部署与 promotion 边界见
+[v0.16 release-readiness 审计](docs/v0.16.0-release-readiness-2026-08-25.md)。
 FIBServe、KDA 和容器后端的合同与信任边界见
 [integration guide](docs/integrations.md)。
 

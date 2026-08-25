@@ -57,6 +57,8 @@ The v0.16.0 managed-service compatibility preflight qualification is
 [the service-preflight report](docs/v0.16.0-service-preflight-qualification-2026-08-25.md).
 The versioned Agent workflow entrypoint is covered by
 [the Kernel Infra skill qualification](docs/kernel-infra-agent-skill-qualification-2026-08-25.md).
+The current default-branch, production-deployment, and promotion boundary is
+recorded in [the v0.16 release-readiness audit](docs/v0.16.0-release-readiness-2026-08-25.md).
 The evaluator adapters and their trust boundaries are documented in
 [the integration guide](docs/integrations.md).
 
