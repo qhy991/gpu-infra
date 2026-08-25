@@ -1,0 +1,36 @@
+{
+  "schema": "kernelinfra.task.v1",
+  "task_id": "kda-authoritative-report-import",
+  "description": "Template for importing a frozen authoritative KDA ledger row.",
+  "workloads": ["large-0", "small-0"],
+  "comparison": {
+    "primary_workloads": ["large-0", "small-0"],
+    "relative_noise_floor": 0.05
+  },
+  "stages": [
+    {
+      "id": "authoritative",
+      "kind": "judge",
+      "execution": "local",
+      "judge": {
+        "identity": "KDA@<judge-commit>+benchmarks@<sha>+scoring@1",
+        "cwd": "../..",
+        "command": [
+          "bin/kernelinfra-kda-import",
+          "--report-ref",
+          "examples/kda_report_import/report-ref.json",
+          "--expected-kernel",
+          "kda_forward",
+          "--expected-benchmarks-sha",
+          "<sha>",
+          "--expected-scoring-schema",
+          "1",
+          "--expected-workloads",
+          "2",
+          "--judge-identity",
+          "KDA@<judge-commit>"
+        ]
+      }
+    }
+  ]
+}

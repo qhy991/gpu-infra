@@ -1,4 +1,4 @@
-# Kernel Infra v0.2 design contract
+# Kernel Infra v0.4 design contract
 
 ## Goal
 
@@ -21,8 +21,8 @@ kernel validity, and performance-frontier decisions separate.
    infrastructure error, never a failed correctness claim.
 7. **Frontier**: a rebuildable per-workload projection over eligible results.
 
-No separate campaign state, agent memory, or experiment database is required
-for v0.2. Agents can submit several runs, and a task digest groups the comparable
+No separate campaign state, agent memory, or experiment database is required.
+Agents can submit several runs, and a task digest groups the comparable
 set.
 
 ## Canonical owners
@@ -86,6 +86,10 @@ submitting agent.
 9. Only `completed + valid + complete workload timing` results enter the
    frontier reducer.
 10. Frontier comparison never crosses task digests.
+11. A service request is legal only while its receipt still resolves to the
+    same exclusive broker job and broker peer, a fully healthy worker set, and
+    the same clean source commit/tree. The service adapter verifies this before
+    submission and after result retrieval.
 
 ## Failure semantics
 
@@ -104,13 +108,15 @@ submitting agent.
 
 ## Deliberate exclusions
 
-v0.2 is a trusted single-host service. It records but does not automatically
-attest that a `service` stage's evaluator deployment is broker-held. It does not
-provide hostile tenant isolation, a cross-host global scheduler,
+v0.4 is a trusted single-host service. It automatically attests the live
+broker/service/source facts exposed by the current interfaces, but broker status
+schema v2 does not expose the admitted command or environment. Launch-wrapper,
+runtime-compatibility, image, and dataset identities therefore remain facts the
+task author must bind into `judge.identity`; they are not inferred from process
+state. Kernel Infra does not provide hostile tenant isolation, a cross-host global scheduler,
 priority/preemption, GPU memory quotas, automatic agent spawning, evaluator
 implementation, or live-command resumption after daemon failure. Remote use
-runs one service beside one broker and reaches it via SSH. Cross-host routing is
-admitted only after this node contract is proven on a real A800 run.
+runs one service beside one broker and reaches it via SSH.
 
 ## Acceptance evidence
 
@@ -125,3 +131,9 @@ admitted only after this node contract is proven on a real A800 run.
   than incorrectness or success.
 - Killing the daemon leaves no evaluator process, labeled container, active
   broker job, or GPU allocation; restart preserves the run as interrupted.
+- Two concurrent service-stage runs are accepted without a per-request GPU
+  allocation, queue behind one broker-held FIBServe worker, and preserve
+  independent results and frontier decisions.
+- A stale broker process, missing broker job, shared service allocation, dirty
+  source checkout, unhealthy worker, changed service identity, or malformed
+  deployment receipt fails closed before frontier admission.

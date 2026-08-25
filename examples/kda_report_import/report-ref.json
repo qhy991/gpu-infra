@@ -1,0 +1,4 @@
+{
+  "ledger_path": "/path/to/kda-authoritative-report.csv",
+  "ledger_row": 1
+}

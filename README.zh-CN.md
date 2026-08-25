@@ -5,7 +5,7 @@ Kernel Infra 是编码 Agent、独立 kernel evaluator 与单机
 task 与候选目录后立即获得 run id；GPU 排队和执行在后台继续，因此 Agent 可以并行
 生成、审查和提交下一批候选。
 
-v0.2 不复制已有能力：
+v0.4 不复制已有能力：
 
 - PTXBench/FIBServe 继续负责隔离编译、sanitize、evaluate 与 profile；
 - KDA 继续拥有 fast/full 独立 judge 和 workload-specific score；
@@ -27,6 +27,8 @@ v0.3 canonical adapter 与第二 operator ABI 验收见
 [A800 RMSNorm 报告](docs/a800-rmsnorm-qualification-2026-08-25.md)。
 v0.3.1 manifest/config 镜像验收见
 [A800 image-contract 报告](docs/a800-image-contract-qualification-2026-08-25.md)。
+FIBServe、KDA 和容器后端的合同与信任边界见
+[integration guide](docs/integrations.md)。
 
 ## 最小使用方式
 
@@ -92,6 +94,23 @@ ABI，并使用容差 oracle。它包含 1.0x shared-reduction 控制、warp-red
 
 容器镜像 identity 的唯一 owner 位于 [images/](images/README.md)。
 
+## Broker 持有的长驻 evaluator
+
+FIBServe 可以让一个 broker job 长期独占一张 GPU 并保留 compiler/baseline
+cache；多个 Agent 的 `service` stage 只提交 HTTP 请求，不再逐请求申请第二张 GPU。
+开始接收候选前，用 `kernelctl service-attest` 生成 deployment receipt。每次请求前后，
+adapter 都会复核 broker peer、独占 job/GPU、健康 worker、service root，以及干净源码
+checkout 的 commit/tree。可校验模板位于
+[`examples/fibserve_service/`](examples/fibserve_service/)。
+
+## KDA authoritative evidence
+
+`kernelinfra-kda-import` 校验并复制一条 authoritative KDA ledger row 与逐 workload
+receipt，重新计算 geomean，并保留 KDA speedup。若导出只有 speedup、没有 candidate 与
+baseline 的绝对时间，该结果可以是合法 KDA 证据，但不能进入 Kernel Infra 的通用
+frontier。模板见
+[`examples/kda_report_import/`](examples/kda_report_import/)。
+
 ## 分阶段 GPU 复用
 
 task 可以声明多个有序 stage。每个 stage 都有独立 judge identity、command 和 broker
@@ -122,9 +141,11 @@ exclusive balanced AB/BA benchmark 的完整实现。
 
 ## 当前边界
 
-v0.2 面向同一 Unix 身份下相互信任的 Agent，并在每个 GPU 节点各运行一个 daemon；
+v0.4 面向同一 Unix 身份下相互信任的 Agent，并在每个 GPU 节点各运行一个 daemon；
 还不承担恶意多租户隔离、跨机全局调度、优先级/抢占、显存配额或 daemon 崩溃后的
-活任务恢复。先在 A800 上证明单节点合同，再决定是否增加跨机 dispatcher。
+活任务恢复。broker status v2 尚不暴露获准 command/environment，因此 launch wrapper、
+compatibility library、image 与 dataset identity 仍须由 task author 绑定到
+`judge.identity`，不能从 deployment receipt 中推断。
 
 ## 测试
 

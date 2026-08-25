@@ -1,0 +1,38 @@
+{
+  "schema": "kernelinfra.task.v1",
+  "task_id": "b200-ptxbench-mha-bwd-service",
+  "description": "Template for a broker-held PTXBench/FIBServe evaluation service.",
+  "workloads": ["38c3b07c-f006-5f5e-9860-ba214c805a6b"],
+  "comparison": {
+    "primary_workloads": ["38c3b07c-f006-5f5e-9860-ba214c805a6b"],
+    "relative_noise_floor": 0.01
+  },
+  "stages": [
+    {
+      "id": "fibserve-evaluate",
+      "kind": "judge",
+      "execution": "service",
+      "judge": {
+        "identity": "PTXBench@<commit>+FIBServe@<commit-or-image>+dataset@<digest>+definition:mha_bwd_d128+workload:38c3b07c-f006-5f5e-9860-ba214c805a6b",
+        "cwd": "../..",
+        "command": [
+          "bin/kernelinfra-fibserve",
+          "--deployment-receipt",
+          "examples/fibserve_service/deployment.json",
+          "--definition",
+          "mha_bwd_d128",
+          "--entry-point",
+          "kernel.cu::run",
+          "--language",
+          "cuda",
+          "--binding",
+          "tvm-ffi",
+          "--source",
+          "kernel.cu",
+          "--workload",
+          "38c3b07c-f006-5f5e-9860-ba214c805a6b"
+        ]
+      }
+    }
+  ]
+}

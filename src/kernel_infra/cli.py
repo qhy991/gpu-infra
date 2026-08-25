@@ -14,6 +14,7 @@ from typing import Any
 from .contracts import ContractError, load_task
 from .runner import RunManager
 from .server import KernelInfraServer
+from .service_attestation import atomic_json, build_service_receipt
 from .store import RunStore, TERMINAL_STATES
 
 DEFAULT_SOCKET = Path("/tmp/kernel-infra.sock")
@@ -44,6 +45,16 @@ def _parser() -> argparse.ArgumentParser:
 
     check = sub.add_parser("task-check", help="validate one task contract")
     check.add_argument("task", type=Path)
+
+    attest = sub.add_parser(
+        "service-attest", help="attest one broker-held evaluator service"
+    )
+    attest.add_argument("--broker-socket", type=Path, default=DEFAULT_BROKER_SOCKET)
+    attest.add_argument("--broker-job-id", required=True)
+    attest.add_argument("--service-url", required=True)
+    attest.add_argument("--service-identity", required=True)
+    attest.add_argument("--source-root", type=Path, required=True)
+    attest.add_argument("--out", type=Path, required=True)
 
     submit = sub.add_parser("submit", help="snapshot and submit one candidate")
     _client_socket(submit)
@@ -91,6 +102,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_serve(args))
     if args.command == "task-check":
         return _task_check(args)
+    if args.command == "service-attest":
+        return _service_attest(args)
     if args.command == "submit":
         return _submit(args)
     if args.command == "submit-many":
@@ -179,6 +192,24 @@ def _task_check(args: argparse.Namespace) -> int:
             ensure_ascii=False,
         )
     )
+    return 0
+
+
+def _service_attest(args: argparse.Namespace) -> int:
+    try:
+        receipt = build_service_receipt(
+            broker_socket=args.broker_socket,
+            broker_job_id=args.broker_job_id,
+            service_url=args.service_url,
+            service_identity=args.service_identity,
+            source_root=args.source_root,
+        )
+        output = args.out.expanduser().resolve()
+        atomic_json(output, receipt)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"kernelctl: {exc}", file=sys.stderr)
+        return 1
+    print(str(output))
     return 0
 
 

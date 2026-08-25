@@ -17,7 +17,7 @@
       "kind": "compile",
       "execution": "local",
       "judge": {
-        "identity": "a800-cuda-smoke@sha256:d548777b6cb7a314360bd84cd65a778b0410f65e1b21f3dca06fbb14215cebfc+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
+        "identity": "a800-cuda-smoke@sha256:71d6c132ac597f07b67960c7f70332aa5f124188f485d8a583ac4d3c578e25ef+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
         "cwd": ".",
         "command": [
           "python3",
@@ -37,7 +37,7 @@
       "id": "correctness",
       "kind": "correctness",
       "judge": {
-        "identity": "a800-cuda-smoke@sha256:d548777b6cb7a314360bd84cd65a778b0410f65e1b21f3dca06fbb14215cebfc+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
+        "identity": "a800-cuda-smoke@sha256:71d6c132ac597f07b67960c7f70332aa5f124188f485d8a583ac4d3c578e25ef+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
         "cwd": ".",
         "command": [
           "python3",
@@ -64,7 +64,7 @@
       "id": "sanitize",
       "kind": "sanitize",
       "judge": {
-        "identity": "a800-cuda-smoke@sha256:d548777b6cb7a314360bd84cd65a778b0410f65e1b21f3dca06fbb14215cebfc+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
+        "identity": "a800-cuda-smoke@sha256:71d6c132ac597f07b67960c7f70332aa5f124188f485d8a583ac4d3c578e25ef+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
         "cwd": ".",
         "command": [
           "python3",
@@ -91,7 +91,7 @@
       "id": "benchmark",
       "kind": "benchmark",
       "judge": {
-        "identity": "a800-cuda-smoke@sha256:d548777b6cb7a314360bd84cd65a778b0410f65e1b21f3dca06fbb14215cebfc+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
+        "identity": "a800-cuda-smoke@sha256:71d6c132ac597f07b67960c7f70332aa5f124188f485d8a583ac4d3c578e25ef+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
         "cwd": ".",
         "command": [
           "python3",

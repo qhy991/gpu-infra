@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 — 2026-08-25
+
+- Attest long-running evaluator services against a live exclusive broker job,
+  broker peer process, healthy worker set, loopback endpoint, and clean Git
+  source commit/tree before and after each service request.
+- Make the FIBServe adapter consume the deployment receipt, bind it into the
+  task judge identity, and preserve the broker job, GPU, raw response, source,
+  service, and receipt fingerprints in the run evidence.
+- Add a fail-closed KDA authoritative-report importer that recomputes
+  per-workload geomeans and preserves speedup-only results without incorrectly
+  admitting them to the absolute-timing frontier.
+- Accept both Docker overlay2 config IDs and containerd manifest IDs, requiring
+  the exact RepoDigest for the latter and retaining manifest, config, and actual
+  runtime identity in result fingerprints.
+- Add checked FIBServe and KDA integration task templates.
+
 ## 0.3.1 — 2026-08-25
 
 - Add one canonical container image contract for registry reference, platform

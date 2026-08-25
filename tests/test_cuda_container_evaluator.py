@@ -41,6 +41,44 @@ class CudaContainerEvaluatorTests(unittest.TestCase):
             ["nvcc", "cuobjdump", "compute-sanitizer"],
         )
 
+    def test_image_identity_accepts_legacy_config_and_manifest_backends(self):
+        evaluator = load_evaluator()
+        image_ref = "nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04"
+        manifest = (
+            "sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4"
+        )
+        config = (
+            "sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d"
+        )
+        self.assertEqual(
+            evaluator._validate_image_identity(
+                identity={"Id": config, "RepoDigests": []},
+                image_ref=image_ref,
+                manifest=manifest,
+                config=config,
+            ),
+            config,
+        )
+        self.assertEqual(
+            evaluator._validate_image_identity(
+                identity={
+                    "Id": manifest,
+                    "RepoDigests": ["nvidia/cuda@" + manifest],
+                },
+                image_ref=image_ref,
+                manifest=manifest,
+                config=config,
+            ),
+            manifest,
+        )
+        with self.assertRaisesRegex(RuntimeError, "container identity drift"):
+            evaluator._validate_image_identity(
+                identity={"Id": manifest, "RepoDigests": []},
+                image_ref=image_ref,
+                manifest=manifest,
+                config=config,
+            )
+
     def test_task_binds_evaluator_harness_and_image(self):
         evaluator = load_evaluator()
         bundle = evaluator.bundle_sha256(EXAMPLE, IMAGE_CONTRACT)

@@ -17,7 +17,7 @@
       "kind": "compile",
       "execution": "local",
       "judge": {
-        "identity": "a800-rmsnorm@sha256:bf6b047d910f4d282189a9bb33179fd65a3e3181ca11454213c1988dd1f8806e+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
+        "identity": "a800-rmsnorm@sha256:d02337cf4d9b6385c8af9b837567de3a13f193e36b7aca1e3d6dd7a0ef50aa32+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
         "cwd": ".",
         "command": [
           "python3",
@@ -37,7 +37,7 @@
       "id": "correctness",
       "kind": "correctness",
       "judge": {
-        "identity": "a800-rmsnorm@sha256:bf6b047d910f4d282189a9bb33179fd65a3e3181ca11454213c1988dd1f8806e+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
+        "identity": "a800-rmsnorm@sha256:d02337cf4d9b6385c8af9b837567de3a13f193e36b7aca1e3d6dd7a0ef50aa32+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
         "cwd": ".",
         "command": [
           "python3",
@@ -64,7 +64,7 @@
       "id": "sanitize",
       "kind": "sanitize",
       "judge": {
-        "identity": "a800-rmsnorm@sha256:bf6b047d910f4d282189a9bb33179fd65a3e3181ca11454213c1988dd1f8806e+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
+        "identity": "a800-rmsnorm@sha256:d02337cf4d9b6385c8af9b837567de3a13f193e36b7aca1e3d6dd7a0ef50aa32+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
         "cwd": ".",
         "command": [
           "python3",
@@ -91,7 +91,7 @@
       "id": "benchmark",
       "kind": "benchmark",
       "judge": {
-        "identity": "a800-rmsnorm@sha256:bf6b047d910f4d282189a9bb33179fd65a3e3181ca11454213c1988dd1f8806e+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
+        "identity": "a800-rmsnorm@sha256:d02337cf4d9b6385c8af9b837567de3a13f193e36b7aca1e3d6dd7a0ef50aa32+manifest:sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4+config:sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
         "cwd": ".",
         "command": [
           "python3",

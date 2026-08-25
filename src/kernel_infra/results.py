@@ -36,6 +36,7 @@ def validate_stage_result(value: Any, task: TaskSpec) -> dict[str, Any]:
         "workloads",
         "artifacts",
         "fingerprints",
+        "metrics",
     }
     unknown = sorted(value.keys() - allowed)
     missing = sorted({"schema", "status", "validity"} - value.keys())
@@ -58,6 +59,8 @@ def validate_stage_result(value: Any, task: TaskSpec) -> dict[str, Any]:
     for field in ("artifacts", "fingerprints"):
         if field in value and not isinstance(value[field], dict):
             raise ContractError(f"stage result {field} must be an object")
+    if "metrics" in value and not isinstance(value["metrics"], dict):
+        raise ContractError("stage result metrics must be an object")
 
     workloads = value.get("workloads", [])
     if not isinstance(workloads, list):
@@ -89,6 +92,7 @@ def _validate_workload(
         "candidate_samples_ms",
         "baseline_samples_ms",
         "stable",
+        "speedup",
         "notes",
     }
     unknown = sorted(value.keys() - allowed)
@@ -102,6 +106,8 @@ def _validate_workload(
     for field in ("candidate_ms", "baseline_ms"):
         if field in value:
             _finite_positive(value[field], f"{where}.{field}")
+    if "speedup" in value:
+        _finite_positive(value["speedup"], f"{where}.speedup")
     for field in ("candidate_samples_ms", "baseline_samples_ms"):
         if field in value:
             samples = value[field]
@@ -136,6 +142,7 @@ def aggregate_run_result(
 ) -> dict[str, Any]:
     merged: dict[str, dict[str, Any]] = {}
     fingerprints: dict[str, Any] = {}
+    metrics: dict[str, Any] = {}
     validity = "unknown"
     all_passed = bool(stage_results) and len(stage_results) == len(task.stages)
     stage_summaries: list[dict[str, Any]] = []
@@ -161,6 +168,8 @@ def aggregate_run_result(
         for row in result.get("workloads", []):
             merged.setdefault(row["id"], {}).update(row)
         fingerprints.update(result.get("fingerprints", {}))
+        if result.get("metrics"):
+            metrics[stage_id] = result["metrics"]
 
     timed = {
         workload_id
@@ -194,4 +203,5 @@ def aggregate_run_result(
         "stages": stage_summaries,
         "workloads": [merged[key] for key in sorted(merged)],
         "fingerprints": fingerprints,
+        "metrics": metrics,
     }

@@ -22,18 +22,21 @@ docker pull \
 docker tag \
   nvidia/cuda@sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4 \
   nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
-docker image inspect nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04 \
-  --format '{{.Id}}'
+docker image inspect nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
 ```
 
-The output must equal the contract's config digest. Kernel Infra repeats that
-config check on every stage and records manifest plus config in result
+On the legacy overlay2 backend, `.Id` must equal the contract's config digest.
+On Docker's containerd image store, `.Id` may instead equal the platform
+manifest, but `RepoDigests` must contain the exact registry name plus that same
+manifest. Any other combination is drift. Kernel Infra repeats this check on
+every stage and records actual runtime ID, manifest, and config in result
 fingerprints.
 
-The A800 qualification node could not reach Docker Hub. It already held the
+The initial A800 qualification node could not reach Docker Hub. It already held the
 exact official base config as a content-addressed parent of a historical local
 image, so qualification restored the official tag to that config and verified
 NVCC, cuobjdump, compute-sanitizer, A800 visibility, task identities, and both
-real CUDA ABIs. This is valid local-cache custody but does not qualify online
-registry acquisition or a second node. Do not substitute a same-named tag with
-a different config digest.
+real CUDA ABIs. The later B200 integration qualification acquired the same
+platform manifest from the registry through Docker's containerd image store and
+exercised the manifest-plus-RepoDigest identity path. Do not substitute a
+same-named tag with a different contract identity.

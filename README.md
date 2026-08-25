@@ -15,7 +15,7 @@ The first release deliberately reuses existing owners:
 - Kernel Infra snapshots inputs, drives staged judges, persists receipts, and
   derives the per-workload frontier.
 
-See [DESIGN.md](DESIGN.md) for the frozen v0.2 contract and
+See [DESIGN.md](DESIGN.md) for the frozen v0.4 contract and
 [README.zh-CN.md](README.zh-CN.md) for the Chinese guide. The first real-node
 acceptance records are [the initial A800 pilot](docs/a800-pilot-2026-08-24.md)
 and the [GitHub-release A800 qualification](docs/github-release-a800-2026-08-24.md).
@@ -29,6 +29,8 @@ The v0.3 canonical-adapter and second-operator qualification is
 [the A800 RMSNorm report](docs/a800-rmsnorm-qualification-2026-08-25.md).
 The v0.3.1 manifest/config image qualification is
 [the A800 image-contract report](docs/a800-image-contract-qualification-2026-08-25.md).
+The evaluator adapters and their trust boundaries are documented in
+[the integration guide](docs/integrations.md).
 
 ## Quick start
 
@@ -97,6 +99,35 @@ A800 workloads. See [the RMSNorm task guide](examples/a800_rmsnorm_smoke/README.
 
 Container image identity has one owner under [images/](images/README.md).
 
+## Broker-held evaluator services
+
+FIBServe can keep one GPU and its baseline/compiler caches alive while many
+agents submit CPU-only service stages concurrently. Create a deployment receipt
+for the live exclusive broker job before accepting requests:
+
+```bash
+bin/kernelctl service-attest \
+  --broker-job-id gpuq-<job> \
+  --service-url http://127.0.0.1:10000 \
+  --service-identity 'PTXBench@<commit>+FIBServe@<commit>+dataset@<digest>' \
+  --source-root /path/to/PTXBench \
+  --out examples/fibserve_service/deployment.json
+```
+
+`kernelinfra-fibserve` verifies the broker peer, exclusive job/GPU, healthy
+workers, service root, and clean source commit/tree both before and after each
+request. The checked task template is in
+[`examples/fibserve_service/`](examples/fibserve_service/).
+
+## KDA authoritative evidence
+
+`kernelinfra-kda-import` validates and copies one authoritative KDA report row
+and its per-workload receipt. It recomputes geomeans and preserves KDA speedups,
+but a speedup-only export without absolute candidate/baseline timing remains
+closed to the generic frontier. See
+[`examples/kda_report_import/`](examples/kda_report_import/) and the
+[integration guide](docs/integrations.md).
+
 ## Run artifacts
 
 The daemon stores each run under
@@ -134,10 +165,8 @@ broker:
 
 The judge writes `KERNELINFRA_RESULT` using schema
 `kernelinfra.stage-result.v1`. See the A800 smoke evaluator for a complete
-example. A FIBServe adapter is included as `bin/kernelinfra-fibserve`; its
-FIBServe daemon must be a separately broker-held foreground service. KDA can use
-the same stage boundary through a thin command wrapper without moving its judge
-or ledger into Kernel Infra.
+example. FIBServe and KDA adapters are included without moving evaluator
+semantics or factual ledgers into Kernel Infra.
 
 ## Tests
 

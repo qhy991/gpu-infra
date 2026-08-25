@@ -193,11 +193,34 @@ def _atomic_json(path: Path, value: Any) -> None:
     _atomic_text(path, json.dumps(value, ensure_ascii=False, indent=2) + "\n")
 
 
-def _image_identity(image: str) -> str:
-    completed = _run(["docker", "image", "inspect", image, "--format", "{{.Id}}"], timeout=30)
+def _image_identity(image: str) -> dict[str, Any]:
+    completed = _run(["docker", "image", "inspect", image], timeout=30)
     if completed.returncode != 0:
         raise RuntimeError(f"cannot inspect image {image}: {completed.stderr.strip()}")
-    return completed.stdout.strip()
+    value = json.loads(completed.stdout)
+    if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict):
+        raise RuntimeError("docker image inspect returned an invalid payload")
+    return value[0]
+
+
+def _validate_image_identity(
+    *, identity: dict[str, Any], image_ref: str, manifest: str, config: str
+) -> str:
+    runtime_id = identity.get("Id")
+    repo_digests = identity.get("RepoDigests") or []
+    expected_repo_digest = image_ref.rsplit(":", 1)[0] + "@" + manifest
+    if runtime_id == config:
+        return str(runtime_id)
+    if (
+        runtime_id == manifest
+        and isinstance(repo_digests, list)
+        and expected_repo_digest in repo_digests
+    ):
+        return str(runtime_id)
+    raise RuntimeError(
+        "container identity drift: expected exact config or manifest-backed "
+        f"runtime; got id={runtime_id!r} repo_digests={repo_digests!r}"
+    )
 
 
 def _load_image_contract(path: Path) -> dict[str, Any]:
@@ -237,7 +260,8 @@ def _fingerprints(
     binary: Path,
     sass: Path,
     ptx: Path,
-    image_id: str,
+    image_runtime_id: str,
+    image_config_digest: str,
     image_manifest_digest: str,
 ) -> dict[str, str]:
     return {
@@ -245,7 +269,9 @@ def _fingerprints(
         "binary_sha256": _sha256(binary),
         "sass_sha256": _sha256(sass),
         "ptx_sha256": _sha256(ptx),
-        "container_image_id": image_id,
+        "container_image_id": image_runtime_id,
+        "container_runtime_id": image_runtime_id,
+        "container_config_digest": image_config_digest,
         "container_manifest_digest": image_manifest_digest,
     }
 
@@ -341,11 +367,13 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     try:
-        actual_image_id = _image_identity(image_ref)
-        if actual_image_id != image_id:
-            raise RuntimeError(
-                f"container image drift: expected {image_id}, got {actual_image_id}"
-            )
+        image_identity = _image_identity(image_ref)
+        runtime_id = _validate_image_identity(
+            identity=image_identity,
+            image_ref=image_ref,
+            manifest=image_manifest_digest,
+            config=image_id,
+        )
         bundle = bundle_sha256(judge_dir, image_contract_path)
         identity = _judge_identity(task_path, stage_id)
         if (
@@ -400,7 +428,8 @@ def main(argv: list[str] | None = None) -> int:
                     binary=binary,
                     sass=sass,
                     ptx=ptx,
-                    image_id=image_id,
+                    image_runtime_id=runtime_id,
+                    image_config_digest=image_id,
                     image_manifest_digest=image_manifest_digest,
                 ),
             }
@@ -482,7 +511,8 @@ def main(argv: list[str] | None = None) -> int:
             binary=binary,
             sass=sass,
             ptx=ptx,
-            image_id=image_id,
+            image_runtime_id=runtime_id,
+            image_config_digest=image_id,
             image_manifest_digest=image_manifest_digest,
         )
         artifacts = {

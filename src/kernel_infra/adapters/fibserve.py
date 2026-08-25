@@ -6,7 +6,7 @@ import argparse
 import hashlib
 import json
 import os
-import tempfile
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -14,10 +14,19 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from kernel_infra.service_attestation import (
+    atomic_json,
+    load_service_receipt,
+    verify_service_receipt,
+)
+
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="kernelinfra-fibserve")
-    parser.add_argument("--service-url", required=True)
+    parser.add_argument("--deployment-receipt", type=Path, required=True)
     parser.add_argument("--definition", required=True)
     parser.add_argument("--entry-point", required=True)
     parser.add_argument(
@@ -43,6 +52,12 @@ def main(argv: list[str] | None = None) -> int:
     stage_dir = _required_env_path("KERNELINFRA_STAGE_DIR")
     candidate_dir = _required_env_path("KERNELINFRA_CANDIDATE_DIR")
     try:
+        deployment = load_service_receipt(args.deployment_receipt.resolve())
+        _require_task_identity(deployment)
+        verify_service_receipt(deployment)
+        deployment_path = stage_dir / "deployment-receipt.json"
+        atomic_json(deployment_path, deployment)
+        service_url = str(deployment["service_url"])
         sources = _sources(candidate_dir, args.source)
         solution = {
             "name": args.name,
@@ -60,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         submit = _request_json(
             "POST",
-            args.service_url.rstrip("/") + "/evaluate",
+            service_url + "/evaluate",
             {"solution": solution, "workload_uuids": args.workload or None},
             timeout=args.request_timeout,
         )
@@ -75,19 +90,20 @@ def main(argv: list[str] | None = None) -> int:
             )
             response = _request_json(
                 "GET",
-                args.service_url.rstrip("/") + f"/tasks/{task_id}?{query}",
+                service_url + f"/tasks/{task_id}?{query}",
                 None,
                 timeout=max(args.request_timeout, 35.0),
             )
             if response.get("status") in {"completed", "failed"}:
                 break
             time.sleep(args.poll_interval)
-        _atomic_json(stage_dir / "fibserve-response.json", response)
-        stage_result = _translate(response, sources, task_id)
-        _atomic_json(result_path, stage_result)
+        atomic_json(stage_dir / "fibserve-response.json", response)
+        verify_service_receipt(deployment)
+        stage_result = _translate(response, sources, task_id, deployment)
+        atomic_json(result_path, stage_result)
         return 0 if stage_result["status"] == "passed" else 1
     except Exception as exc:
-        _atomic_json(
+        atomic_json(
             result_path,
             {
                 "schema": "kernelinfra.stage-result.v1",
@@ -127,8 +143,26 @@ def _sources(candidate_dir: Path, selected: list[str]) -> list[dict[str, str]]:
 
 
 def _translate(
-    response: dict[str, Any], sources: list[dict[str, str]], task_id: str
+    response: dict[str, Any],
+    sources: list[dict[str, str]],
+    task_id: str,
+    deployment: dict[str, Any],
 ) -> dict[str, Any]:
+    reported_commit = deployment["service_root"].get("commit")
+    deployment_artifacts = {
+        "fibserve_task_id": task_id,
+        "deployment_receipt": "deployment-receipt.json",
+        "broker_job_id": deployment["broker_job_id"],
+        "broker_gpu_ids": deployment["broker_gpu_ids"],
+    }
+    deployment_fingerprints = {
+        "deployment_receipt_sha256": _json_sha256(deployment),
+        "service_identity": deployment["service_identity"],
+        "broker_instance_id": deployment["broker_instance_id"],
+        "service_commit": reported_commit if isinstance(reported_commit, str) else "",
+        "service_source_commit": deployment["source_commit"],
+        "service_source_tree": deployment["source_tree"],
+    }
     if response.get("status") == "failed":
         return {
             "schema": "kernelinfra.stage-result.v1",
@@ -136,7 +170,8 @@ def _translate(
             "validity": "unknown",
             "summary": f"FIBServe task failed: {response.get('error', 'unknown')}",
             "workloads": [],
-            "artifacts": {"fibserve_task_id": task_id},
+            "artifacts": deployment_artifacts,
+            "fingerprints": deployment_fingerprints,
         }
     rows: list[dict[str, Any]] = []
     all_passed = True
@@ -164,7 +199,8 @@ def _translate(
             "validity": "unknown",
             "summary": "FIBServe completed without trace results",
             "workloads": [],
-            "artifacts": {"fibserve_task_id": task_id},
+            "artifacts": deployment_artifacts,
+            "fingerprints": deployment_fingerprints,
         }
     source_digest = hashlib.sha256()
     for source in sorted(sources, key=lambda item: item["path"]):
@@ -181,11 +217,36 @@ def _translate(
         ),
         "workloads": rows,
         "artifacts": {
-            "fibserve_task_id": task_id,
+            **deployment_artifacts,
             "raw_response": "fibserve-response.json",
         },
-        "fingerprints": {"source_sha256": source_digest.hexdigest()},
+        "fingerprints": {
+            "source_sha256": source_digest.hexdigest(),
+            **deployment_fingerprints,
+        },
     }
+
+
+def _require_task_identity(deployment: dict[str, Any]) -> None:
+    task_path = _required_env_path("KERNELINFRA_TASK")
+    stage_id = os.environ.get("KERNELINFRA_STAGE_ID")
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    identities = [
+        stage.get("judge", {}).get("identity")
+        for stage in task.get("stages", [])
+        if stage.get("id") == stage_id
+    ]
+    if len(identities) != 1 or str(deployment["service_identity"]) not in str(
+        identities[0]
+    ):
+        raise RuntimeError("task judge identity does not bind service deployment identity")
+
+
+def _json_sha256(value: Any) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _request_json(
@@ -215,21 +276,6 @@ def _required_env_path(name: str) -> Path:
     if not value:
         raise RuntimeError(f"missing required environment variable: {name}")
     return Path(value).resolve()
-
-
-def _atomic_json(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=False, indent=2)
-            handle.write("\n")
-        os.replace(temporary, path)
-    finally:
-        try:
-            os.unlink(temporary)
-        except FileNotFoundError:
-            pass
 
 
 if __name__ == "__main__":
