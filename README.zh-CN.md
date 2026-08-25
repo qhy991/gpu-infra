@@ -31,6 +31,8 @@ v0.4.0 evaluator integration 与双节点验收见
 [A800/B200 报告](docs/v0.4.0-a800-b200-qualification-2026-08-25.md)。
 v0.5.0 broker admission receipt 验收见
 [admission 报告](docs/v0.5.0-broker-admission-qualification-2026-08-25.md)。
+v0.6.0 daemon-managed service 验收见
+[managed-service 报告](docs/v0.6.0-managed-service-qualification-2026-08-25.md)。
 FIBServe、KDA 和容器后端的合同与信任边界见
 [integration guide](docs/integrations.md)。
 
