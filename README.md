@@ -31,6 +31,8 @@ The v0.3.1 manifest/config image qualification is
 [the A800 image-contract report](docs/a800-image-contract-qualification-2026-08-25.md).
 The v0.4.0 evaluator-integration and dual-node qualification is
 [the A800/B200 report](docs/v0.4.0-a800-b200-qualification-2026-08-25.md).
+The v0.5.0 broker-admission qualification is
+[the admission report](docs/v0.5.0-broker-admission-qualification-2026-08-25.md).
 The evaluator adapters and their trust boundaries are documented in
 [the integration guide](docs/integrations.md).
 
