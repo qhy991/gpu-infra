@@ -23,5 +23,7 @@ jobs:
         run: python -m pip install .
       - name: Run contract and lifecycle tests
         run: python -m unittest discover -s tests -v
-      - name: Validate the checked-in A800 task
-        run: kernelctl task-check examples/a800_smoke/task.json
+      - name: Validate the checked-in A800 tasks
+        run: |
+          kernelctl task-check examples/a800_smoke/task.json
+          kernelctl task-check examples/a800_cuda_smoke/task.json

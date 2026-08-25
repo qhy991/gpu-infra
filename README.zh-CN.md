@@ -17,6 +17,8 @@ v0.1 不复制已有能力：
 首个真实节点验收见 [A800 pilot](docs/a800-pilot-2026-08-24.md)。
 从 GitHub 发布 commit 重新取源后的验收见
 [GitHub-release A800 qualification](docs/github-release-a800-2026-08-24.md)。
+首个 exact-commit 自定义 CUDA 验收见
+[A800 NVCC/container 报告](docs/a800-real-cuda-qualification-2026-08-25.md)。
 
 ## 最小使用方式
 

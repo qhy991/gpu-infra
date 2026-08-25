@@ -19,6 +19,8 @@ See [DESIGN.md](DESIGN.md) for the frozen v0.1 contract and
 [README.zh-CN.md](README.zh-CN.md) for the Chinese guide. The first real-node
 acceptance records are [the initial A800 pilot](docs/a800-pilot-2026-08-24.md)
 and the [GitHub-release A800 qualification](docs/github-release-a800-2026-08-24.md).
+The first exact-commit custom-CUDA qualification is
+[the A800 NVCC/container report](docs/a800-real-cuda-qualification-2026-08-25.md).
 
 ## Quick start
 
