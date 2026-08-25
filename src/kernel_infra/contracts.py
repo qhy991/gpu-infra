@@ -11,7 +11,9 @@ from pathlib import Path
 from typing import Any
 
 TASK_SCHEMA = "kernelinfra.task.v1"
-STAGE_KINDS = frozenset({"correctness", "benchmark", "profile", "judge"})
+STAGE_KINDS = frozenset(
+    {"correctness", "sanitize", "benchmark", "profile", "judge"}
+)
 MODES = frozenset({"shared", "exclusive"})
 EXECUTIONS = frozenset({"broker", "service"})
 _ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,95}$")
@@ -216,7 +218,7 @@ def parse_task(raw_value: Any, *, source_path: Path) -> TaskSpec:
     for stage in stages:
         if (
             stage.execution == "broker"
-            and stage.kind in {"benchmark", "profile"}
+            and stage.kind in {"sanitize", "benchmark", "profile"}
             and stage.resources is not None
             and stage.resources.mode != "exclusive"
         ):

@@ -44,6 +44,27 @@ bin/kernelctl frontier --task examples/a800_smoke/task.json
 `submit` and `submit-many` are non-blocking by default. Use `kernelctl wait
 <run-id>` only when a caller intentionally wants to wait.
 
+## Real CUDA container task
+
+`examples/a800_cuda_smoke/` is a real A800 qualification path rather than the
+PyTorch-only scheduling fixture. It pins a local CUDA 12.4 devel image by image
+ID, compiles candidate CUDA with NVCC for `sm_80`, checks exact output, runs
+compute-sanitizer memcheck and racecheck, reuses the same binary for balanced
+AB/BA timing, and fingerprints source, binary, SASS, and PTX.
+
+```bash
+bin/kernelctl task-check examples/a800_cuda_smoke/task.json
+bin/kernelctl submit-many \
+  --task examples/a800_cuda_smoke/task.json \
+  examples/a800_cuda_smoke/candidate_basic \
+  examples/a800_cuda_smoke/candidate_grid_stride \
+  examples/a800_cuda_smoke/candidate_incorrect \
+  examples/a800_cuda_smoke/candidate_race
+```
+
+See [the task guide](examples/a800_cuda_smoke/README.md) for its frozen ABI,
+container boundary, evidence, and deliberate limitations.
+
 ## Run artifacts
 
 The daemon stores each run under

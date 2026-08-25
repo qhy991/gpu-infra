@@ -347,6 +347,7 @@ class RunManager:
         return {
             "PYTHONUNBUFFERED": "1",
             "KERNELINFRA_RUN_ID": run_id,
+            "KERNELINFRA_RUN_DIR": str(self.store.run_dir(run_id)),
             "KERNELINFRA_TASK": str(self.store.run_dir(run_id) / "task.json"),
             "KERNELINFRA_CANDIDATE_DIR": str(
                 self.store.run_dir(run_id) / "candidate"

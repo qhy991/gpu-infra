@@ -55,6 +55,7 @@ import os
 from pathlib import Path
 
 candidate = Path(os.environ["KERNELINFRA_CANDIDATE_DIR"])
+assert Path(os.environ["KERNELINFRA_RUN_DIR"]).is_dir()
 config = json.loads((candidate / "candidate.json").read_text())
 stage = os.environ["KERNELINFRA_STAGE_KIND"]
 result_path = Path(os.environ["KERNELINFRA_RESULT"])

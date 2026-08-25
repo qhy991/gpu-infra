@@ -53,8 +53,8 @@ Agent submit
 ```
 
 Multiple runs advance concurrently. Correctness stages may overlap under the
-broker's bounded `shared` capacity; a benchmark or profiler stage requests
-`exclusive` capacity and waits without occupying the submitting agent.
+broker's bounded `shared` capacity; sanitizer, benchmark, and profiler stages
+request `exclusive` capacity and wait without occupying the submitting agent.
 
 ## Invariants
 

@@ -1,0 +1,91 @@
+{
+  "schema": "kernelinfra.task.v1",
+  "task_id": "a800-cuda-vector-add",
+  "description": "Real NVCC/CUDA A800 vector-add infrastructure qualification.",
+  "workloads": ["vector-add-n4194304", "vector-add-n16777216"],
+  "comparison": {
+    "primary_workloads": ["vector-add-n4194304", "vector-add-n16777216"],
+    "guardrails": {
+      "vector-add-n4194304": 0.5,
+      "vector-add-n16777216": 0.5
+    },
+    "relative_noise_floor": 0.05
+  },
+  "stages": [
+    {
+      "id": "correctness",
+      "kind": "correctness",
+      "judge": {
+        "identity": "a800-cuda-smoke@sha256:306fd1672891f3c510ffbe9ef63945c38e7e10fce40128e58390f6ef8894a90c+image:sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
+        "cwd": ".",
+        "command": [
+          "python3",
+          "evaluator.py",
+          "--image",
+          "kerneleval-cuda:latest",
+          "--image-id",
+          "sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
+          "--arch",
+          "sm_80"
+        ]
+      },
+      "resources": {
+        "mode": "shared",
+        "gpu_count": 1,
+        "estimate_s": 60,
+        "queue_timeout_s": 900,
+        "run_timeout_s": 240
+      }
+    },
+    {
+      "id": "sanitize",
+      "kind": "sanitize",
+      "judge": {
+        "identity": "a800-cuda-smoke@sha256:306fd1672891f3c510ffbe9ef63945c38e7e10fce40128e58390f6ef8894a90c+image:sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
+        "cwd": ".",
+        "command": [
+          "python3",
+          "evaluator.py",
+          "--image",
+          "kerneleval-cuda:latest",
+          "--image-id",
+          "sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
+          "--arch",
+          "sm_80"
+        ]
+      },
+      "resources": {
+        "mode": "exclusive",
+        "gpu_count": 1,
+        "estimate_s": 60,
+        "queue_timeout_s": 900,
+        "run_timeout_s": 240
+      }
+    },
+    {
+      "id": "benchmark",
+      "kind": "benchmark",
+      "judge": {
+        "identity": "a800-cuda-smoke@sha256:306fd1672891f3c510ffbe9ef63945c38e7e10fce40128e58390f6ef8894a90c+image:sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
+        "cwd": ".",
+        "command": [
+          "python3",
+          "evaluator.py",
+          "--image",
+          "kerneleval-cuda:latest",
+          "--image-id",
+          "sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
+          "--arch",
+          "sm_80"
+        ]
+      },
+      "resources": {
+        "mode": "exclusive",
+        "gpu_count": 1,
+        "estimate_s": 30,
+        "queue_timeout_s": 900,
+        "run_timeout_s": 180
+      }
+    }
+  ]
+}

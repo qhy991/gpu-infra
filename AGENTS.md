@@ -19,8 +19,8 @@
 - Separate execution completion, validity, and frontier decision.
 - Snapshot candidate inputs before queueing so an agent may continue editing
   without changing a queued run.
-- Correctness stages may use broker `shared` capacity. Benchmarks and profilers
-  must use `exclusive` capacity.
+- Correctness stages may use broker `shared` capacity. Sanitizers, benchmarks,
+  and profilers must use `exclusive` capacity.
 - A `service` stage is a CPU transport call, not a second allocator. Record the
   service commit/image and broker-held deployment identity in the judge field.
 - Treat connection, broker, timeout, missing-result, and malformed-result

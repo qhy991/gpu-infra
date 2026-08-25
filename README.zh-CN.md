@@ -42,6 +42,26 @@ bin/kernelctl frontier --task examples/a800_smoke/task.json
 `submit` / `submit-many` 默认立即返回。只有调用者明确需要同步等待时才使用
 `kernelctl wait <run-id>`。
 
+## 真实 CUDA 容器任务
+
+`examples/a800_cuda_smoke/` 不再只是 PyTorch 调度 fixture。它按不可变 image ID
+绑定本地 CUDA 12.4 devel 镜像，用 NVCC 为 `sm_80` 编译候选，执行 exact
+correctness、compute-sanitizer memcheck/racecheck 和 balanced AB/BA timing，并为
+source、binary、SASS、PTX 分别保存 SHA-256。
+
+```bash
+bin/kernelctl task-check examples/a800_cuda_smoke/task.json
+bin/kernelctl submit-many \
+  --task examples/a800_cuda_smoke/task.json \
+  examples/a800_cuda_smoke/candidate_basic \
+  examples/a800_cuda_smoke/candidate_grid_stride \
+  examples/a800_cuda_smoke/candidate_incorrect \
+  examples/a800_cuda_smoke/candidate_race
+```
+
+冻结 ABI、容器边界、证据和限制见
+[任务说明](examples/a800_cuda_smoke/README.md)。
+
 ## 分阶段 GPU 复用
 
 task 可以声明多个有序 stage。每个 stage 都有独立 judge identity、command 和 broker
