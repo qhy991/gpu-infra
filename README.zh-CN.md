@@ -39,6 +39,8 @@ v0.8.0 consumer protection 与 idle-grace 验收见
 [consumer-policy 报告](docs/v0.8.0-service-consumer-qualification-2026-08-25.md)。
 v0.9.0 cross-host routing 验收见
 [fleet-routing 报告](docs/v0.9.0-fleet-routing-qualification-2026-08-25.md)。
+v0.10.0 routed-run operations 验收见
+[fleet-operations 报告](docs/v0.10.0-fleet-operations-qualification-2026-08-25.md)。
 FIBServe、KDA 和容器后端的合同与信任边界见
 [integration guide](docs/integrations.md)。
 
