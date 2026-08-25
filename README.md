@@ -43,6 +43,8 @@ The v0.9.0 cross-host routing qualification is
 [the fleet-routing report](docs/v0.9.0-fleet-routing-qualification-2026-08-25.md).
 The v0.10.0 routed-run operations qualification is
 [the fleet-operations report](docs/v0.10.0-fleet-operations-qualification-2026-08-25.md).
+The v0.11.0 terminal artifact-mirror qualification is
+[the artifact-mirror report](docs/v0.11.0-fleet-artifact-mirror-qualification-2026-08-25.md).
 The evaluator adapters and their trust boundaries are documented in
 [the integration guide](docs/integrations.md).
 

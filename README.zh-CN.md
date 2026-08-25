@@ -41,6 +41,8 @@ v0.9.0 cross-host routing 验收见
 [fleet-routing 报告](docs/v0.9.0-fleet-routing-qualification-2026-08-25.md)。
 v0.10.0 routed-run operations 验收见
 [fleet-operations 报告](docs/v0.10.0-fleet-operations-qualification-2026-08-25.md)。
+v0.11.0 terminal artifact mirror 验收见
+[artifact-mirror 报告](docs/v0.11.0-fleet-artifact-mirror-qualification-2026-08-25.md)。
 FIBServe、KDA 和容器后端的合同与信任边界见
 [integration guide](docs/integrations.md)。
 
