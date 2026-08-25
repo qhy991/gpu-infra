@@ -49,6 +49,8 @@ The v0.12.0 parallel route-snapshot qualification is
 [the fleet-snapshot report](docs/v0.12.0-fleet-snapshot-qualification-2026-08-25.md).
 The v0.13.0 immutable-route endpoint-upgrade qualification is
 [the endpoint-upgrade report](docs/v0.13.0-fleet-endpoint-upgrade-qualification-2026-08-25.md).
+The v0.14.0 one-probe parallel fleet submission qualification is
+[the fleet-submit-many report](docs/v0.14.0-fleet-submit-many-qualification-2026-08-25.md).
 The evaluator adapters and their trust boundaries are documented in
 [the integration guide](docs/integrations.md).
 
