@@ -27,3 +27,4 @@ jobs:
         run: |
           kernelctl task-check examples/a800_smoke/task.json
           kernelctl task-check examples/a800_cuda_smoke/task.json
+          kernelctl task-check examples/a800_rmsnorm_smoke/task.json

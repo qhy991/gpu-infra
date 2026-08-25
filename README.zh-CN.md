@@ -80,6 +80,11 @@ bin/kernelctl submit-many \
 冻结 ABI、容器边界、证据和限制见
 [任务说明](examples/a800_cuda_smoke/README.md)。
 
+`examples/a800_rmsnorm_smoke/` 用同一个 canonical adapter 接入第二个带归约的
+ABI，并使用容差 oracle。它包含 1.0x shared-reduction 控制、warp-reduction 候选和
+错误控制，覆盖两个冻结 A800 workload。见
+[RMSNorm 任务说明](examples/a800_rmsnorm_smoke/README.md)。
+
 ## 分阶段 GPU 复用
 
 task 可以声明多个有序 stage。每个 stage 都有独立 judge identity、command 和 broker

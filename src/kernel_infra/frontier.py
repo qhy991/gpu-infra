@@ -26,7 +26,7 @@ def rebuild_frontier(store: RunStore, task: TaskSpec) -> dict[str, Any]:
 
     cells: dict[str, dict[str, Any]] = {}
     decisions: list[dict[str, Any]] = []
-    seen_cubin: dict[str, str] = {}
+    seen_compiler: dict[str, str] = {}
     noise = task.comparison.relative_noise_floor
 
     for state, result in candidates:
@@ -40,10 +40,15 @@ def rebuild_frontier(store: RunStore, task: TaskSpec) -> dict[str, Any]:
             decision = "measurement-unstable"
             reason = "judge marked at least one workload measurement unstable"
         elif result.get("frontier_eligible"):
-            cubin = result.get("fingerprints", {}).get("cubin_sha256")
-            if isinstance(cubin, str) and cubin in seen_cubin:
+            compiler = _compiler_fingerprint(result)
+            compiler_identity = (
+                f"{compiler[0]}:{compiler[1]}" if compiler is not None else None
+            )
+            if compiler_identity is not None and compiler_identity in seen_compiler:
                 decision = "compiler-equivalent"
-                reason = f"same cubin as {seen_cubin[cubin]}"
+                reason = (
+                    f"same {compiler[0]} as {seen_compiler[compiler_identity]}"
+                )
             else:
                 guardrail_failure = _guardrail_failure(task, rows)
                 if guardrail_failure is not None:
@@ -92,8 +97,8 @@ def rebuild_frontier(store: RunStore, task: TaskSpec) -> dict[str, Any]:
                                 "baseline_ms": baseline_ms,
                                 "speedup": baseline_ms / candidate_ms,
                             }
-                if isinstance(cubin, str):
-                    seen_cubin.setdefault(cubin, run_id)
+                if compiler_identity is not None:
+                    seen_compiler.setdefault(compiler_identity, run_id)
 
         decisions.append(
             {
@@ -118,6 +123,17 @@ def rebuild_frontier(store: RunStore, task: TaskSpec) -> dict[str, Any]:
     store.atomic_json(path, projection)
     projection["path"] = str(path)
     return projection
+
+
+def _compiler_fingerprint(result: dict[str, Any]) -> tuple[str, str] | None:
+    fingerprints = result.get("fingerprints", {})
+    if not isinstance(fingerprints, dict):
+        return None
+    for key in ("cubin_sha256", "sass_sha256", "binary_sha256"):
+        value = fingerprints.get(key)
+        if isinstance(value, str) and value:
+            return key, value
+    return None
 
 
 def _guardrail_failure(

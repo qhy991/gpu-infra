@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 — 2026-08-25
+
+- Promote Docker/NVCC orchestration from the vector-add example to the canonical
+  reusable `cuda_container` adapter.
+- Add a second real custom-CUDA ABI for FP32 RMSNorm with two A800 workloads,
+  a tolerance oracle, shared-reduction baseline, warp-reduction candidate, and
+  incorrect control.
+- Recognize compiler-equivalent runs by cubin, then SASS, then binary
+  fingerprint so identical generated code cannot refresh the frontier.
+- Validate three checked tasks in CI while retaining bounded local compile,
+  sanitizer, AB/BA, fingerprint, and crash fail-closed contracts.
+
 ## 0.2.1 — 2026-08-25
 
 - Run every local, service, and broker command behind a parent-owned pipe lease.

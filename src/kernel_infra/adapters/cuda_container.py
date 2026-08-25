@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 STAGE_SCHEMA = "kernelinfra.stage-result.v1"
-ARTIFACT_DIR_NAME = "a800_cuda_smoke"
 _ACTIVE_CONTAINER: str | None = None
 
 
@@ -24,13 +23,19 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--image", required=True)
     parser.add_argument("--image-id", required=True)
     parser.add_argument("--arch", default="sm_80")
+    parser.add_argument("--artifact-name", required=True)
+    parser.add_argument("--judge-dir", type=Path, default=Path.cwd())
     return parser
 
 
 def bundle_sha256(root: Path) -> str:
     digest = hashlib.sha256()
-    for name in ("evaluator.py", "harness.cu"):
-        data = (root / name).read_bytes()
+    sources = (
+        ("cuda_container.py", Path(__file__).resolve()),
+        ("harness.cu", root / "harness.cu"),
+    )
+    for name, path in sources:
+        data = path.read_bytes()
         digest.update(name.encode("utf-8"))
         digest.update(b"\0")
         digest.update(len(data).to_bytes(8, "big"))
@@ -277,17 +282,18 @@ def main(argv: list[str] | None = None) -> int:
     stage_id = os.environ["KERNELINFRA_STAGE_ID"]
     stage_kind = os.environ["KERNELINFRA_STAGE_KIND"]
     _install_cleanup(_container_name())
-    judge_dir = Path(__file__).resolve().parent
+    judge_dir = args.judge_dir.resolve()
+    artifact_name = args.artifact_name
     candidate = candidate_dir / "kernel.cu"
-    artifact_dir = run_dir / "artifacts" / ARTIFACT_DIR_NAME
+    artifact_dir = run_dir / "artifacts" / artifact_name
     artifact_dir.mkdir(parents=True, exist_ok=True)
     binary = artifact_dir / "runner"
     sass = artifact_dir / "runner.sass"
     ptx = artifact_dir / "runner.ptx"
     compiler_artifacts = {
-        "binary": f"artifacts/{ARTIFACT_DIR_NAME}/runner",
-        "sass": f"artifacts/{ARTIFACT_DIR_NAME}/runner.sass",
-        "ptx": f"artifacts/{ARTIFACT_DIR_NAME}/runner.ptx",
+        "binary": f"artifacts/{artifact_name}/runner",
+        "sass": f"artifacts/{artifact_name}/runner.sass",
+        "ptx": f"artifacts/{artifact_name}/runner.ptx",
     }
 
     try:
@@ -433,14 +439,18 @@ def main(argv: list[str] | None = None) -> int:
         }
 
         if stage_kind in {"correctness", "sanitize"}:
-            workloads = [
-                {
-                    "id": row["id"],
-                    "correct": bool(row["correct"]),
-                    "notes": f"max_abs_error={float(row['max_abs_error']):.9g}",
-                }
-                for row in payload["workloads"]
-            ]
+            workloads = []
+            for row in payload["workloads"]:
+                notes = f"max_abs_error={float(row['max_abs_error']):.9g}"
+                if "max_rel_error" in row:
+                    notes += f" max_rel_error={float(row['max_rel_error']):.9g}"
+                workloads.append(
+                    {
+                        "id": row["id"],
+                        "correct": bool(row["correct"]),
+                        "notes": notes,
+                    }
+                )
             passed = completed.returncode == 0 and all(
                 row["correct"] for row in workloads
             )
@@ -455,11 +465,9 @@ def main(argv: list[str] | None = None) -> int:
                     if (stage_dir / f"{tool}.stderr.log").is_file():
                         artifacts[f"{tool}_stderr"] = f"{tool}.stderr.log"
             else:
-                passed_summary = (
-                    f"exact CUDA correctness passed on {payload['device']}"
-                )
+                passed_summary = f"CUDA correctness passed on {payload['device']}"
                 failed_summary = (
-                    f"candidate failed exact correctness on {payload['device']}"
+                    f"candidate failed correctness on {payload['device']}"
                 )
             result = {
                 "schema": STAGE_SCHEMA,

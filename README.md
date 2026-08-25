@@ -85,6 +85,11 @@ bin/kernelctl submit-many \
 See [the task guide](examples/a800_cuda_smoke/README.md) for its frozen ABI,
 container boundary, evidence, and deliberate limitations.
 
+`examples/a800_rmsnorm_smoke/` reuses the same canonical adapter for a second,
+reduction-based ABI with a tolerance oracle. It contains a 1.0x shared-reduction
+control, a warp-reduction candidate, and an incorrect control across two frozen
+A800 workloads. See [the RMSNorm task guide](examples/a800_rmsnorm_smoke/README.md).
+
 ## Run artifacts
 
 The daemon stores each run under

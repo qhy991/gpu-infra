@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kernel-infra"
-version = "0.2.1"
+version = "0.3.0"
 description = "Agent-native kernel evaluation control and evidence plane"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +14,7 @@ dependencies = []
 [project.scripts]
 kernelctl = "kernel_infra.cli:main"
 kernelinfra-fibserve = "kernel_infra.adapters.fibserve:main"
+kernelinfra-cuda-container = "kernel_infra.adapters.cuda_container:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

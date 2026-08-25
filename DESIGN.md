@@ -35,9 +35,15 @@ set.
 | Run lifecycle | `kernel-infrad` run state and event log |
 | Correctness and raw timing | the named stage judge's result JSON |
 | Cross-run best per workload | derived `frontier.json` |
+| Docker/NVCC lifecycle policy | canonical `cuda_container` adapter |
 
 Kernel Infra never edits evaluator code, selects a winner from agent prose, or
 uses a live aggregate score as the factual timing owner.
+
+Operator tasks remain data and bounded judge assets: each owns its ABI, trusted
+harness, workloads, oracle, tolerances, baseline, and candidates. Shared
+container lifecycle, image identity, compilation, fingerprints, signal cleanup,
+and result translation stay in one adapter.
 
 ## Execution path
 

@@ -1,13 +1,13 @@
 {
   "schema": "kernelinfra.task.v1",
-  "task_id": "a800-cuda-vector-add",
-  "description": "Real NVCC/CUDA A800 vector-add infrastructure qualification.",
-  "workloads": ["vector-add-n4194304", "vector-add-n16777216"],
+  "task_id": "a800-cuda-rmsnorm",
+  "description": "Real NVCC/CUDA A800 RMSNorm contract qualification.",
+  "workloads": ["rmsnorm-r4096-c1024", "rmsnorm-r2048-c4096"],
   "comparison": {
-    "primary_workloads": ["vector-add-n4194304", "vector-add-n16777216"],
+    "primary_workloads": ["rmsnorm-r4096-c1024", "rmsnorm-r2048-c4096"],
     "guardrails": {
-      "vector-add-n4194304": 0.5,
-      "vector-add-n16777216": 0.5
+      "rmsnorm-r4096-c1024": 0.5,
+      "rmsnorm-r2048-c4096": 0.5
     },
     "relative_noise_floor": 0.05
   },
@@ -17,7 +17,7 @@
       "kind": "compile",
       "execution": "local",
       "judge": {
-        "identity": "a800-cuda-smoke@sha256:483cc78feaed8535596c4924406dcaec9af7a3f248c62884ee92cf591c7b028a+image:sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
+        "identity": "a800-rmsnorm@sha256:24c30c2d8510ce2a32d52e14320bb9cdc85c4a8d5abb7efba778037677727954+image:sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
         "cwd": ".",
         "command": [
           "python3",
@@ -29,7 +29,7 @@
           "--arch",
           "sm_80",
           "--artifact-name",
-          "a800_cuda_smoke",
+          "a800_rmsnorm_smoke",
           "--judge-dir",
           "."
         ]
@@ -39,7 +39,7 @@
       "id": "correctness",
       "kind": "correctness",
       "judge": {
-        "identity": "a800-cuda-smoke@sha256:483cc78feaed8535596c4924406dcaec9af7a3f248c62884ee92cf591c7b028a+image:sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
+        "identity": "a800-rmsnorm@sha256:24c30c2d8510ce2a32d52e14320bb9cdc85c4a8d5abb7efba778037677727954+image:sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
         "cwd": ".",
         "command": [
           "python3",
@@ -51,7 +51,7 @@
           "--arch",
           "sm_80",
           "--artifact-name",
-          "a800_cuda_smoke",
+          "a800_rmsnorm_smoke",
           "--judge-dir",
           "."
         ]
@@ -59,16 +59,16 @@
       "resources": {
         "mode": "shared",
         "gpu_count": 1,
-        "estimate_s": 60,
+        "estimate_s": 20,
         "queue_timeout_s": 900,
-        "run_timeout_s": 240
+        "run_timeout_s": 180
       }
     },
     {
       "id": "sanitize",
       "kind": "sanitize",
       "judge": {
-        "identity": "a800-cuda-smoke@sha256:483cc78feaed8535596c4924406dcaec9af7a3f248c62884ee92cf591c7b028a+image:sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
+        "identity": "a800-rmsnorm@sha256:24c30c2d8510ce2a32d52e14320bb9cdc85c4a8d5abb7efba778037677727954+image:sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
         "cwd": ".",
         "command": [
           "python3",
@@ -80,7 +80,7 @@
           "--arch",
           "sm_80",
           "--artifact-name",
-          "a800_cuda_smoke",
+          "a800_rmsnorm_smoke",
           "--judge-dir",
           "."
         ]
@@ -97,7 +97,7 @@
       "id": "benchmark",
       "kind": "benchmark",
       "judge": {
-        "identity": "a800-cuda-smoke@sha256:483cc78feaed8535596c4924406dcaec9af7a3f248c62884ee92cf591c7b028a+image:sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
+        "identity": "a800-rmsnorm@sha256:24c30c2d8510ce2a32d52e14320bb9cdc85c4a8d5abb7efba778037677727954+image:sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
         "cwd": ".",
         "command": [
           "python3",
@@ -109,7 +109,7 @@
           "--arch",
           "sm_80",
           "--artifact-name",
-          "a800_cuda_smoke",
+          "a800_rmsnorm_smoke",
           "--judge-dir",
           "."
         ]

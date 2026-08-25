@@ -17,9 +17,10 @@ optimization claim.
 - Stability: baseline coefficient of variation no greater than 5%.
 - Guardrail: candidate speedup at least 0.5x on each workload.
 
-The checked task binds the SHA-256 of `evaluator.py + harness.cu` and the exact
-container image ID. The evaluator rejects a moving `latest` tag if it no longer
-resolves to that image.
+The checked task binds the SHA-256 of the canonical
+`src/kernel_infra/adapters/cuda_container.py` adapter plus `harness.cu`, and the
+exact container image ID. The adapter rejects a moving `latest` tag if it no
+longer resolves to that image.
 
 ## Candidate ABI
 

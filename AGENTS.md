@@ -8,6 +8,9 @@
   legal only when the GPU service itself is held by a broker allocation.
 - A `local` stage must be provably CPU-only and uses the daemon's bounded local
   capacity. It must never inherit or select a GPU outside the broker.
+- `src/kernel_infra/adapters/cuda_container.py` is the canonical owner of
+  Docker/NVCC lifecycle policy. Operator examples own only their task, harness,
+  ABI, candidates, and task-specific oracle/measurement semantics.
 - A task's named judge owns correctness and raw measurements. Kernel Infra may
   validate and reduce judge output, but must not silently reinterpret a failed
   or missing judge result as success.

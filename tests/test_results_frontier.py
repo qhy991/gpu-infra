@@ -57,7 +57,7 @@ class FrontierTests(unittest.TestCase):
                     "stable": True,
                 }
             ],
-            "fingerprints": {"cubin_sha256": cubin},
+            "fingerprints": {"sass_sha256": cubin},
         }
         store.atomic_json(store.run_dir(state["run_id"]) / "result.json", result)
         store.update_state(state["run_id"], "completed", state="completed")
