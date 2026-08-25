@@ -145,6 +145,11 @@ Agent service-start
   -> require live broker v0.6+ identity and a healthy broker probe
   -> require gpu-run unknown-estimate parsing and admission receipt output
   -> only then create immutable deployment history and submit to the broker
+
+Agent service-preflight
+  -> run the exact service-start compatibility gate without mutation
+  -> return checked broker/client/spec facts and create no deployment history
+  -> never authorize a later start; service-start reruns the live gate
 ```
 
 Multiple runs advance concurrently. CPU compilation uses a separate bounded
@@ -266,6 +271,8 @@ submitting agent.
 40. The selected gpu-run executable must parse `--estimate unknown` and expose
     `--receipt-out` through a no-submit capability check. Unknown must never be
     translated into an arbitrary numeric estimate for an older client.
+41. `service-preflight` is read-only current evidence, not an authorization
+    token. It creates no deployment and `service-start` must rerun the same gate.
 
 ## Failure semantics
 

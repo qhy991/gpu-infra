@@ -246,6 +246,13 @@ def _parser() -> argparse.ArgumentParser:
     service_start.add_argument("--wait", action="store_true")
     service_start.add_argument("spec", type=Path)
 
+    service_preflight = sub.add_parser(
+        "service-preflight",
+        help="check broker/client compatibility without creating a deployment",
+    )
+    _client_socket(service_preflight)
+    service_preflight.add_argument("spec", type=Path)
+
     service_status = sub.add_parser(
         "service-status", help="show managed evaluator deployments"
     )
@@ -358,6 +365,8 @@ def main(argv: list[str] | None = None) -> int:
         return _service_check(args)
     if args.command == "service-start":
         return _service_start(args)
+    if args.command == "service-preflight":
+        return _service_preflight(args)
     if args.command == "service-status":
         return _service_status(args)
     if args.command == "service-wait":
@@ -1553,6 +1562,20 @@ def _service_start(args: argparse.Namespace) -> int:
         return _service_wait_for_id(
             args.socket, state["deployment_id"], None, json_output=False
         )
+    return 0
+
+
+def _service_preflight(args: argparse.Namespace) -> int:
+    response = _request(
+        args.socket,
+        {
+            "op": "service_preflight",
+            "spec": str(args.spec.expanduser().resolve()),
+        },
+    )
+    if response is None:
+        return 1
+    print(json.dumps(response["preflight"], indent=2, ensure_ascii=False))
     return 0
 
 

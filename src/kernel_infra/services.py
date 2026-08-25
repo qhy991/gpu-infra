@@ -143,6 +143,23 @@ class ServiceManager:
                 )
 
     def start(self, spec_path: Path) -> dict[str, Any]:
+        spec, _result = self._preflight(spec_path)
+        state = self.store.create_deployment(spec)
+        deployment_id = state["deployment_id"]
+        self._ready_or_done[deployment_id] = asyncio.Event()
+        self._tasks[deployment_id] = asyncio.create_task(
+            self._run(deployment_id, spec),
+            name=f"kernelinfra-service-{deployment_id}",
+        )
+        return state
+
+    def preflight(self, spec_path: Path) -> dict[str, Any]:
+        _spec, result = self._preflight(spec_path)
+        return result
+
+    def _preflight(
+        self, spec_path: Path
+    ) -> tuple[ManagedServiceSpec, dict[str, Any]]:
         spec = load_service_spec(spec_path)
         if not spec.cwd.is_dir():
             raise ValueError(f"service launch cwd is not a directory: {spec.cwd}")
@@ -162,16 +179,21 @@ class ServiceManager:
             raise ValueError(
                 f"service endpoint is already in use before launch: {spec.service_url}"
             )
-        validate_managed_broker(self._broker_probe(self.broker_socket))
+        broker = self._broker_probe(self.broker_socket)
+        validate_managed_broker(broker)
         self._gpu_run_probe(self.gpu_run)
-        state = self.store.create_deployment(spec)
-        deployment_id = state["deployment_id"]
-        self._ready_or_done[deployment_id] = asyncio.Event()
-        self._tasks[deployment_id] = asyncio.create_task(
-            self._run(deployment_id, spec),
-            name=f"kernelinfra-service-{deployment_id}",
-        )
-        return state
+        return spec, {
+            "schema": "kernelinfra.service-preflight.v1",
+            "checked_at": utc_now(),
+            "service_id": spec.service_id,
+            "service_sha256": spec.digest,
+            "broker_socket": str(self.broker_socket),
+            "broker_version": broker["broker_version"],
+            "broker_instance_id": broker["instance_id"],
+            "gpu_run": str(self.gpu_run),
+            "estimate_unknown": True,
+            "admission_receipt_output": True,
+        }
 
     async def wait(
         self, deployment_id: str, timeout: float | None = None

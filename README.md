@@ -131,6 +131,7 @@ complete service lifecycle from one checked service contract:
 
 ```bash
 bin/kernelctl service-check examples/fibserve_service/service.json
+bin/kernelctl service-preflight examples/fibserve_service/service.json
 deployment_id=$(bin/kernelctl service-start examples/fibserve_service/service.json)
 bin/kernelctl service-wait "$deployment_id"
 bin/kernelctl service-status "$deployment_id" --json
@@ -155,6 +156,9 @@ checks the selected gpu-run executable without submitting work: the client must
 parse `--estimate unknown` and expose `--receipt-out`. An incompatible deployed
 broker/client is rejected with no deployment directory, event, broker job, or
 GPU request; unknown estimates are never replaced by a made-up duration.
+`service-preflight` exposes this same live gate as a read-only command and
+returns the checked spec, broker identity, gpu-run path, and required capability
+booleans without creating history.
 
 `kernelinfra-fibserve` then verifies the broker peer, exclusive job/GPU,
 healthy workers, broker-issued launch/executable/environment digests, service

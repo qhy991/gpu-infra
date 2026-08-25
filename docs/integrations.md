@@ -13,6 +13,7 @@ daemon-managed service contract:
 
 ```bash
 kernelctl service-check /path/to/fibserve-service.json
+kernelctl service-preflight /path/to/fibserve-service.json
 deployment_id=$(kernelctl service-start /path/to/fibserve-service.json)
 kernelctl service-wait "$deployment_id"
 kernelctl service-status "$deployment_id" --json
@@ -37,6 +38,10 @@ option prove the client can preserve unknown ETA and write broker admission
 custody. Failure creates no deployment history and submits no broker job. This
 keeps a stale machine installation from becoming an asynchronous readiness
 failure or silently changing unknown into a numeric estimate.
+`service-preflight` runs this exact gate through the daemon and returns
+`kernelinfra.service-preflight.v1` without creating deployment state. It is an
+advisory current check; `service-start` reruns the same function immediately
+before acceptance so a stale prior preflight cannot authorize later mutation.
 
 An optional `idle_grace_s` policy automatically stops a ready deployment only
 after its derived active-consumer set remains empty for the complete grace

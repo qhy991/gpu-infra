@@ -7,6 +7,8 @@
   error.
 - Inspect the selected gpu-run client without submitting work; require parsing
   `--estimate unknown` and exposing `--receipt-out` admission custody.
+- Add read-only `service-preflight`; `service-start` reruns the same function at
+  acceptance rather than trusting a stale earlier result.
 - Reject old broker/client combinations before creating deployment state,
   events, logs, broker jobs, or GPU requests. Preserve unknown estimate semantics
   instead of silently substituting a numeric duration.

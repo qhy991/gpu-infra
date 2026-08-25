@@ -198,6 +198,9 @@ class KernelInfraServer:
         if operation == "service_start":
             state = self.services.start(Path(request["spec"]))
             return {"ok": True, "service": state}
+        if operation == "service_preflight":
+            result = self.services.preflight(Path(request["spec"]))
+            return {"ok": True, "preflight": result}
         if operation == "service_status":
             deployment_id = request.get("deployment_id")
             states = (

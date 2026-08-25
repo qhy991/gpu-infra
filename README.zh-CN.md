@@ -132,9 +132,12 @@ history。
 probe error，并以不提交任务的方式检查所选 gpu-run 能解析 `--estimate unknown`、
 支持 `--receipt-out`。不兼容 broker/client 会在 deployment 目录、event、broker job
 或 GPU request 产生前拒绝；绝不把 unknown 偷换成虚构时长。
+`service-preflight` 以只读命令暴露同一 live gate，返回 checked spec、broker identity、
+gpu-run path 与 capability 结论，但不创建 history。
 
 ```bash
 kernelctl service-check /path/to/fibserve-service.json
+kernelctl service-preflight /path/to/fibserve-service.json
 deployment_id=$(kernelctl service-start /path/to/fibserve-service.json)
 kernelctl service-wait "$deployment_id"
 kernelctl service-status "$deployment_id" --json

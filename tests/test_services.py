@@ -208,6 +208,12 @@ class ManagedServiceTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_start_is_nonblocking_ready_is_durable_and_stop_releases(self):
+        preflight = self.manager.preflight(self.spec_path)
+        self.assertEqual(preflight["schema"], "kernelinfra.service-preflight.v1")
+        self.assertEqual(preflight["broker_version"], "0.6.0")
+        self.assertTrue(preflight["estimate_unknown"])
+        self.assertTrue(preflight["admission_receipt_output"])
+        self.assertEqual(self.manager.store.list_states(), [])
         accepted = self.manager.start(self.spec_path)
         self.assertEqual(accepted["state"], "accepted")
         ready = await self.manager.wait(accepted["deployment_id"], timeout=15)
