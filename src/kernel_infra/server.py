@@ -12,16 +12,24 @@ from .candidate import validate_candidate
 from .contracts import ContractError, load_task
 from .frontier import rebuild_frontier
 from .runner import RunManager
+from .services import ServiceManager
 
 
 class KernelInfraServer:
-    def __init__(self, manager: RunManager, socket_path: Path) -> None:
+    def __init__(
+        self,
+        manager: RunManager,
+        services: ServiceManager,
+        socket_path: Path,
+    ) -> None:
         self.manager = manager
+        self.services = services
         self.socket_path = socket_path.expanduser().resolve()
         self._server: asyncio.AbstractServer | None = None
 
     async def start(self) -> int:
-        recovered = await self.manager.recover_interrupted()
+        recovered_services = await self.services.recover_interrupted()
+        recovered_runs = await self.manager.recover_interrupted()
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
         if self.socket_path.exists():
             if not stat.S_ISSOCK(self.socket_path.stat().st_mode):
@@ -37,12 +45,13 @@ class KernelInfraServer:
             self._handle, path=self.socket_path, limit=8 * 1024 * 1024
         )
         self.socket_path.chmod(0o660)
-        return recovered
+        return recovered_runs + recovered_services
 
     async def close(self) -> None:
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
+        await self.services.close()
         await self.manager.close()
         try:
             if stat.S_ISSOCK(self.socket_path.stat().st_mode):
@@ -148,4 +157,30 @@ class KernelInfraServer:
             task = load_task(Path(request["task"]))
             projection = rebuild_frontier(self.manager.store, task)
             return {"ok": True, "frontier": projection}
+        if operation == "service_start":
+            state = self.services.start(Path(request["spec"]))
+            return {"ok": True, "service": state}
+        if operation == "service_status":
+            deployment_id = request.get("deployment_id")
+            states = (
+                [self.services.store.read_state(str(deployment_id))]
+                if deployment_id
+                else self.services.store.list_states(
+                    service_id=request.get("service_id")
+                )
+            )
+            return {"ok": True, "services": states}
+        if operation == "service_wait":
+            timeout = request.get("timeout")
+            if timeout is not None:
+                timeout = float(timeout)
+                if timeout < 0:
+                    raise ValueError("timeout must be non-negative")
+            state = await self.services.wait(
+                str(request["deployment_id"]), timeout
+            )
+            return {"ok": True, "service": state}
+        if operation == "service_stop":
+            stopped = await self.services.stop(str(request["deployment_id"]))
+            return {"ok": True, "stopped": stopped}
         raise ValueError(f"unknown operation: {operation!r}")

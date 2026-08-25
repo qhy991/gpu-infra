@@ -2,7 +2,8 @@
 
 ## Ownership
 
-- `kernel-infrad` owns run lifecycle, immutable input snapshots, and receipts.
+- `kernel-infrad` owns run lifecycle, managed service deployment lifecycle,
+  immutable input snapshots, and receipts.
 - `agent-gpu-broker` remains the sole owner of per-host GPU allocation and queue
   policy. A broker stage runs through `gpu-run`; a CPU-only service request is
   legal only when the GPU service itself is held by a broker allocation.
@@ -21,6 +22,9 @@
 
 - Keep task, stage-result, run-result, receipt, and frontier schemas explicit
   and versioned.
+- Every managed service start creates a unique immutable deployment history.
+  Never overwrite an earlier spec, admission, deployment receipt, log, or state.
+  Reject a second active deployment for the same service id so agents reuse it.
 - Separate execution completion, validity, and frontier decision.
 - Snapshot candidate inputs before queueing so an agent may continue editing
   without changing a queued run.
@@ -33,6 +37,8 @@
 - Every stage command runs behind `exec_guard.py`; its pipe lease and process
   group are the canonical crash-cleanup boundary. Startup must reconcile any
   persisted broker job id before marking a run interrupted.
+- Managed gpu-run service clients use the same pipe-lease cleanup and startup
+  reconciliation boundary. Never auto-relaunch an uncertain deployment.
 - Treat connection, broker, timeout, missing-result, and malformed-result
   failures as `unknown` validity and fail closed for frontier admission.
 

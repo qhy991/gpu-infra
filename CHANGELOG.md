@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0 — 2026-08-25
+
+- Add strict `kernelinfra.service.v1` contracts and immutable deployment ids for
+  daemon-managed broker-held evaluator services.
+- Add non-blocking `service-start`, `service-status`, `service-wait`, and
+  `service-stop`, plus service contract validation.
+- Automatically run `gpu-run --receipt-out`, wait for a healthy worker, bind
+  broker admission/executable digests, and create
+  `kernelinfra.service-deployment.v2` without manual tmux orchestration.
+- Preserve per-deployment spec, request, state, events, logs, admission, and
+  deployment receipts; never overwrite historical deployments on restart.
+- Run every service client behind the daemon-owned pipe lease, stop it through
+  the broker on normal shutdown, and reconcile persisted broker jobs before
+  marking deployments interrupted after restart.
+- Reject a pre-existing service endpoint before broker admission so a managed
+  deployment cannot accidentally attest an unrelated process already bound to
+  the declared port.
+
 ## 0.5.0 — 2026-08-25
 
 - Require a broker v0.6 admission receipt for every long-running evaluator

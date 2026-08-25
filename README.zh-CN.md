@@ -102,11 +102,24 @@ ABI，并使用容差 oracle。它包含 1.0x shared-reduction 控制、warp-red
 
 FIBServe 可以让一个 broker job 长期独占一张 GPU 并保留 compiler/baseline
 cache；多个 Agent 的 `service` stage 只提交 HTTP 请求，不再逐请求申请第二张 GPU。
-启动服务时用 broker v0.6 的 `gpu-run --receipt-out` 保存 admission receipt；开始接收
-候选前，再用 `kernelctl service-attest --broker-admission-receipt ...` 生成 deployment
-receipt。每次请求前后，adapter 都会复核 broker peer、独占 job/GPU、launch spec、
-executable/environment digest、健康 worker、service root，以及干净源码 checkout 的
-commit/tree。可校验模板位于
+现在可以直接用 `kernelctl service-start` 非阻塞启动 checked service spec；daemon
+自动执行 guarded `gpu-run --receipt-out`、等待健康 worker、生成 deployment v2，并
+返回唯一 deployment id。`service-status` / `service-wait` / `service-stop` 管理完整
+生命周期。同一个 service id 存活时禁止再次启动；停止后重启会创建新的 immutable
+history。
+
+```bash
+kernelctl service-check /path/to/fibserve-service.json
+deployment_id=$(kernelctl service-start /path/to/fibserve-service.json)
+kernelctl service-wait "$deployment_id"
+kernelctl service-status "$deployment_id" --json
+kernelctl service-stop "$deployment_id"
+```
+
+每次候选请求前后，adapter 都会复核 broker peer、独占 job/GPU、launch spec、
+executable/environment digest、健康 worker、service root，以及干净源码 checkout
+的 commit/tree。`service-attest` 仍可导入外部手工启动的 broker-held service。
+可校验模板位于
 [`examples/fibserve_service/`](examples/fibserve_service/)。
 
 ## KDA authoritative evidence
@@ -147,7 +160,7 @@ exclusive balanced AB/BA benchmark 的完整实现。
 
 ## 当前边界
 
-v0.5 面向同一 Unix 身份下相互信任的 Agent，并在每个 GPU 节点各运行一个 daemon；
+v0.6 面向同一 Unix 身份下相互信任的 Agent，并在每个 GPU 节点各运行一个 daemon；
 还不承担恶意多租户隔离、跨机全局调度、优先级/抢占、显存配额或 daemon 崩溃后的
 活任务恢复。broker admission receipt 已拥有真实 command/environment digest；argv
 所引用的 compatibility library、image、dataset 与 config 内容仍须由 task/evaluator

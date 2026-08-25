@@ -8,8 +8,32 @@ only allocator.
 ## PTXBench / FIBServe
 
 FIBServe already owns asynchronous task IDs, per-GPU workers, baseline cache,
-sanitization, evaluation, profiling, and raw traces. Run one FIBServe process as
-a long-lived exclusive broker v0.6 job, saving the admission receipt at start:
+sanitization, evaluation, profiling, and raw traces. The preferred path is one
+daemon-managed service contract:
+
+```bash
+kernelctl service-check /path/to/fibserve-service.json
+deployment_id=$(kernelctl service-start /path/to/fibserve-service.json)
+kernelctl service-wait "$deployment_id"
+kernelctl service-status "$deployment_id" --json
+```
+
+`service-start` snapshots the contract and returns immediately. The daemon runs
+the broker client behind a pipe lease, saves the broker admission, waits for a
+healthy worker, builds deployment v2, and marks the unique deployment id ready.
+At most one deployment per service id may be nonterminal. `service-stop`
+terminates the guarded broker client and releases the allocation. Restarting a
+stopped service creates a new history rather than overwriting evidence.
+
+The checked `kernelinfra.service.v1` contract owns owner, URL, source root,
+identity prefix, cwd, command, explicit environment, exclusive GPU count,
+queue/run estimates and limits, and readiness timeout. The endpoint must be
+unused before launch, closing the possibility of attesting an unrelated service
+already bound to that port.
+
+For an externally managed lifecycle, the lower-level path remains available.
+Run one FIBServe process as a long-lived exclusive broker v0.6 job, saving the
+admission receipt at start:
 
 ```bash
 gpu-run \
@@ -31,7 +55,7 @@ kernelctl service-attest \
   --broker-job-id gpuq-<job> \
   --broker-admission-receipt /path/to/gpuq-admission.json \
   --service-url http://127.0.0.1:10000 \
-  --service-identity 'PTXBench@<commit>+FIBServe@<commit-or-image>+dataset@<digest>' \
+  --service-identity 'PTXBench@<commit>+FIBServe@<commit-or-image>+dataset@<digest>+admission@sha256:<launch-spec>+executable@sha256:<executable>' \
   --source-root /path/to/PTXBench \
   --out /path/to/deployment.json
 ```

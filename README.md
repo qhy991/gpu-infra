@@ -106,23 +106,31 @@ Container image identity has one owner under [images/](images/README.md).
 ## Broker-held evaluator services
 
 FIBServe can keep one GPU and its baseline/compiler caches alive while many
-agents submit CPU-only service stages concurrently. Create a deployment receipt
-for the live exclusive broker job before accepting requests:
+agents submit CPU-only service stages concurrently. The daemon can own the
+complete service lifecycle from one checked service contract:
 
 ```bash
-bin/kernelctl service-attest \
-  --broker-job-id gpuq-<job> \
-  --broker-admission-receipt /path/to/gpuq-admission.json \
-  --service-url http://127.0.0.1:10000 \
-  --service-identity 'PTXBench@<commit>+FIBServe@<commit>+dataset@<digest>+admission@sha256:<launch-spec>+executable@sha256:<executable>' \
-  --source-root /path/to/PTXBench \
-  --out examples/fibserve_service/deployment.json
+bin/kernelctl service-check examples/fibserve_service/service.json
+deployment_id=$(bin/kernelctl service-start examples/fibserve_service/service.json)
+bin/kernelctl service-wait "$deployment_id"
+bin/kernelctl service-status "$deployment_id" --json
+# Submit as many task runs as needed using the generated deployment receipt.
+bin/kernelctl service-stop "$deployment_id"
 ```
 
-`kernelinfra-fibserve` verifies the broker peer, exclusive job/GPU, healthy
-workers, broker-issued launch/executable/environment digests, service root, and
-clean source commit/tree both before and after each request. The checked task template is in
+`service-start` is non-blocking. It snapshots the spec, launches guarded
+`gpu-run --receipt-out`, waits for healthy workers, creates deployment v2, and
+returns a unique deployment id. Starting the same service id again while it is
+active is rejected; stopping and restarting creates another immutable history.
+
+`kernelinfra-fibserve` then verifies the broker peer, exclusive job/GPU,
+healthy workers, broker-issued launch/executable/environment digests, service
+root, and clean source commit/tree both before and after each request. The
+checked service/task templates are in
 [`examples/fibserve_service/`](examples/fibserve_service/).
+
+`kernelctl service-attest` remains available as a low-level import path for an
+externally launched broker-held service.
 
 ## KDA authoritative evidence
 
@@ -154,6 +162,19 @@ result.json               validated aggregate run result
 
 `frontiers/<task-id>/<task-digest>.json` is derived from those run artifacts
 and can be rebuilt at any time.
+
+Managed services use an independent immutable history under
+`services/deployments/<deployment-id>/`:
+
+```text
+spec.json                 exact checked service contract
+request.json              resolved launch/resource identity
+state.json                accepted/starting/ready/stopped/failed/interrupted
+events.jsonl              append-only deployment lifecycle
+stdout.log / stderr.log   complete guarded gpu-run/service stream
+admission.json            broker-issued started-job receipt
+deployment.json           live service/source/broker attestation
+```
 
 ## Evaluator contract
 

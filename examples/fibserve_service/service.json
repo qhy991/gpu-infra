@@ -1,0 +1,24 @@
+{
+  "schema": "kernelinfra.service.v1",
+  "service_id": "b200-ptxbench-fibserve",
+  "description": "Template for a daemon-managed broker-held FIBServe deployment.",
+  "owner": "<trusted-owner>",
+  "service_url": "http://127.0.0.1:10000",
+  "source_root": "/path/to/PTXBench",
+  "identity_prefix": "PTXBench@<commit>+FIBServe@<commit-or-image>+dataset@<digest>+compat@sha256:<digest>+config@sha256:<digest>",
+  "launch": {
+    "cwd": "/path/to/PTXBench",
+    "command": ["/path/to/start-fibserve.sh"],
+    "env": {
+      "SERVICE_PORT": "10000",
+      "DATASET_ROOT": "/path/to/frozen-dataset"
+    }
+  },
+  "resources": {
+    "gpu_count": 1,
+    "estimate_s": null,
+    "queue_timeout_s": 14400,
+    "run_timeout_s": 7200
+  },
+  "readiness_timeout_s": 600
+}

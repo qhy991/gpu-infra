@@ -30,3 +30,4 @@ jobs:
           kernelctl task-check examples/a800_rmsnorm_smoke/task.json
           kernelctl task-check examples/fibserve_service/task.json
           kernelctl task-check examples/kda_report_import/task.json
+          kernelctl service-check examples/fibserve_service/service.json

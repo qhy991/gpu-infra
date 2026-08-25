@@ -15,6 +15,9 @@ from .contracts import ContractError, load_task
 from .runner import RunManager
 from .server import KernelInfraServer
 from .service_attestation import atomic_json, build_service_receipt
+from .service_contracts import load_service_spec
+from .service_store import SERVICE_TERMINAL_STATES, ServiceStore
+from .services import ServiceManager
 from .store import RunStore, TERMINAL_STATES
 
 DEFAULT_SOCKET = Path("/tmp/kernel-infra.sock")
@@ -56,6 +59,40 @@ def _parser() -> argparse.ArgumentParser:
     attest.add_argument("--service-identity", required=True)
     attest.add_argument("--source-root", type=Path, required=True)
     attest.add_argument("--out", type=Path, required=True)
+
+    service_check = sub.add_parser(
+        "service-check", help="validate one managed service contract"
+    )
+    service_check.add_argument("spec", type=Path)
+
+    service_start = sub.add_parser(
+        "service-start", help="start one broker-held evaluator deployment"
+    )
+    _client_socket(service_start)
+    service_start.add_argument("--wait", action="store_true")
+    service_start.add_argument("spec", type=Path)
+
+    service_status = sub.add_parser(
+        "service-status", help="show managed evaluator deployments"
+    )
+    _client_socket(service_status)
+    service_status.add_argument("deployment_id", nargs="?")
+    service_status.add_argument("--service-id")
+    service_status.add_argument("--json", action="store_true")
+
+    service_wait = sub.add_parser(
+        "service-wait", help="wait until a deployment is ready or terminal"
+    )
+    _client_socket(service_wait)
+    service_wait.add_argument("deployment_id")
+    service_wait.add_argument("--timeout", type=float)
+    service_wait.add_argument("--json", action="store_true")
+
+    service_stop = sub.add_parser(
+        "service-stop", help="stop one managed evaluator deployment"
+    )
+    _client_socket(service_stop)
+    service_stop.add_argument("deployment_id")
 
     submit = sub.add_parser("submit", help="snapshot and submit one candidate")
     _client_socket(submit)
@@ -105,6 +142,16 @@ def main(argv: list[str] | None = None) -> int:
         return _task_check(args)
     if args.command == "service-attest":
         return _service_attest(args)
+    if args.command == "service-check":
+        return _service_check(args)
+    if args.command == "service-start":
+        return _service_start(args)
+    if args.command == "service-status":
+        return _service_status(args)
+    if args.command == "service-wait":
+        return _service_wait(args)
+    if args.command == "service-stop":
+        return _service_stop(args)
     if args.command == "submit":
         return _submit(args)
     if args.command == "submit-many":
@@ -136,7 +183,12 @@ async def _serve(args: argparse.Namespace) -> int:
         broker_socket=args.broker_socket,
         local_capacity=args.local_capacity,
     )
-    server = KernelInfraServer(manager, args.socket)
+    services = ServiceManager(
+        store=ServiceStore(args.state_dir),
+        gpu_run=gpu_run,
+        broker_socket=args.broker_socket,
+    )
+    server = KernelInfraServer(manager, services, args.socket)
     try:
         recovered = await server.start()
     except Exception as exc:
@@ -212,6 +264,113 @@ def _service_attest(args: argparse.Namespace) -> int:
         print(f"kernelctl: {exc}", file=sys.stderr)
         return 1
     print(str(output))
+    return 0
+
+
+def _service_check(args: argparse.Namespace) -> int:
+    try:
+        spec = load_service_spec(args.spec)
+    except ContractError as exc:
+        print(f"kernelctl: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "schema": spec.raw["schema"],
+                "service_id": spec.service_id,
+                "service_sha256": spec.digest,
+                "owner": spec.owner,
+                "service_url": spec.service_url,
+                "source_root": str(spec.source_root),
+                "cwd": str(spec.cwd),
+                "command": list(spec.command),
+                "env_keys": sorted(spec.env),
+                "gpu_count": spec.resources.gpu_count,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+def _service_start(args: argparse.Namespace) -> int:
+    response = _request(
+        args.socket,
+        {"op": "service_start", "spec": str(args.spec.expanduser().resolve())},
+    )
+    if response is None:
+        return 1
+    state = response["service"]
+    print(state["deployment_id"])
+    if args.wait:
+        return _service_wait_for_id(
+            args.socket, state["deployment_id"], None, json_output=False
+        )
+    return 0
+
+
+def _service_status(args: argparse.Namespace) -> int:
+    response = _request(
+        args.socket,
+        {
+            "op": "service_status",
+            "deployment_id": args.deployment_id,
+            "service_id": args.service_id,
+        },
+    )
+    if response is None:
+        return 1
+    states = response["services"]
+    if args.json:
+        print(json.dumps(states, indent=2, ensure_ascii=False))
+    else:
+        _print_services(states)
+    return 0
+
+
+def _service_wait(args: argparse.Namespace) -> int:
+    return _service_wait_for_id(
+        args.socket, args.deployment_id, args.timeout, args.json
+    )
+
+
+def _service_wait_for_id(
+    socket_path: Path,
+    deployment_id: str,
+    timeout: float | None,
+    json_output: bool,
+) -> int:
+    response = _request(
+        socket_path,
+        {
+            "op": "service_wait",
+            "deployment_id": deployment_id,
+            "timeout": timeout,
+        },
+    )
+    if response is None:
+        return 1
+    state = response["service"]
+    if json_output:
+        print(json.dumps(state, indent=2, ensure_ascii=False))
+    else:
+        _print_services([state])
+    if state["state"] == "ready":
+        return 0
+    return 1 if state["state"] in SERVICE_TERMINAL_STATES else 3
+
+
+def _service_stop(args: argparse.Namespace) -> int:
+    response = _request(
+        args.socket,
+        {"op": "service_stop", "deployment_id": args.deployment_id},
+    )
+    if response is None:
+        return 1
+    if not response["stopped"]:
+        print("kernelctl: service is already terminal", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -358,6 +517,21 @@ def _print_runs(runs: list[dict[str, Any]]) -> None:
         print(
             f"{run['run_id']} state={run['state']} stage={stage} "
             f"broker={broker} gpus={gpu_ids}{reason}"
+        )
+
+
+def _print_services(states: list[dict[str, Any]]) -> None:
+    if not states:
+        print("-")
+        return
+    for state in states:
+        broker = state.get("broker_job_id") or "-"
+        gpu_ids = ",".join(map(str, state.get("gpu_ids", []))) or "-"
+        receipt = state.get("deployment_receipt") or "-"
+        reason = f" reason={state['reason']}" if state.get("reason") else ""
+        print(
+            f"{state['deployment_id']} state={state['state']} "
+            f"broker={broker} gpus={gpu_ids} receipt={receipt}{reason}"
         )
 
 

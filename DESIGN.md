@@ -1,4 +1,4 @@
-# Kernel Infra v0.5 design contract
+# Kernel Infra v0.6 design contract
 
 ## Goal
 
@@ -16,10 +16,12 @@ kernel validity, and performance-frontier decisions separate.
 3. **Run**: one task digest plus one candidate digest.
 4. **Stage**: one judge command plus either a broker resource request or a
    CPU-only request to an already broker-managed evaluator service.
-5. **Receipt**: immutable request identity plus observed lifecycle and exit.
-6. **Result**: validated judge output; absence or malformation is an
+5. **Service deployment**: one immutable service spec snapshot plus one unique
+   deployment id, broker admission, health attestation, and lifecycle.
+6. **Receipt**: immutable request identity plus observed lifecycle and exit.
+7. **Result**: validated judge output; absence or malformation is an
    infrastructure error, never a failed correctness claim.
-7. **Frontier**: a rebuildable per-workload projection over eligible results.
+8. **Frontier**: a rebuildable per-workload projection over eligible results.
 
 No separate campaign state, agent memory, or experiment database is required.
 Agents can submit several runs, and a task digest groups the comparable
@@ -33,6 +35,9 @@ set.
 | Workloads, judges, gates, resource modes | checked task JSON |
 | Candidate source used by a run | content-addressed run snapshot |
 | Run lifecycle | `kernel-infrad` run state and event log |
+| Service launch contract | checked service JSON |
+| Service deployment lifecycle | `kernel-infrad` deployment state and event log |
+| Service GPU launch/allocation | broker admission receipt |
 | Correctness and raw timing | the named stage judge's result JSON |
 | Cross-run best per workload | derived `frontier.json` |
 | Docker/NVCC lifecycle policy | canonical `cuda_container` adapter |
@@ -56,6 +61,14 @@ Agent submit
   -> independent judge writes stage-result.v1
   -> kernel-infrad validates and aggregates run-result.v1
   -> frontier reducer compares valid, stable, same-task-digest runs
+
+Agent service-start
+  -> kernel-infrad snapshots service spec and returns deployment_id
+  -> guarded gpu-run acquires one exclusive broker allocation
+  -> broker writes admission receipt; evaluator becomes healthy
+  -> kernel-infrad writes deployment.v2 and marks deployment ready
+  -> many service-stage runs reuse that deployment without another GPU request
+  -> service-stop or daemon lease loss cancels gpu-run and releases the GPU
 ```
 
 Multiple runs advance concurrently. CPU compilation uses a separate bounded
@@ -94,6 +107,16 @@ submitting agent.
     receipt. Saved and live receipts, broker instance/peer, job timestamps,
     allocation, launch-spec digest, and executable digest must agree; the task
     judge identity binds the launch-spec and executable digests.
+13. Every managed service start creates a new immutable deployment id. Restart
+    never overwrites an earlier spec, receipt, log, event stream, or state.
+14. At most one nonterminal deployment may exist for a service id. Agents reuse
+    its ready deployment instead of launching another evaluator GPU.
+15. A managed service endpoint must be unused before launch. Readiness requires
+    a started broker admission, healthy workers, clean source attestation, and a
+    completed deployment v2 receipt.
+16. Managed gpu-run clients use the same daemon-owned pipe lease as stages.
+    Normal stop, daemon shutdown, daemon death, and startup reconciliation all
+    release the broker allocation; uncertain deployments are never replayed.
 
 ## Failure semantics
 
@@ -109,18 +132,27 @@ submitting agent.
   is `measurement-unstable`.
 - Candidate contains a symlink or unsupported special file: reject before
   queueing so the snapshot is self-contained.
+- A service endpoint already responds before launch: reject before broker
+  admission rather than attest an unrelated process.
+- Service admission timeout, unhealthy worker, attestation failure, or client
+  exit before readiness: deployment `failed`; no task may use it.
+- Requested service stop or normal daemon shutdown: deployment `stopped` after
+  the guarded client and broker allocation terminate.
+- Daemon restart with a nonterminal deployment: reconcile its broker job, mark
+  `interrupted`, and require a new deployment id; never auto-relaunch.
 
 ## Deliberate exclusions
 
-v0.5 is a trusted single-host service. It attests broker-issued launch and
+v0.6 is a trusted single-host service. It attests broker-issued launch and
 environment digests plus live broker/service/source custody. Files referenced by
 the admitted argv—dataset, model, image, config, and compatibility assets—remain
 task-owned identities and must be fingerprinted by the task/evaluator rather
 than inferred from path names. Kernel Infra does not provide hostile tenant
 isolation, a cross-host global scheduler,
 priority/preemption, GPU memory quotas, automatic agent spawning, evaluator
-implementation, or live-command resumption after daemon failure. Remote use
-runs one service beside one broker and reaches it via SSH.
+implementation, automatic campaign stop policy, or live-command resumption
+after daemon failure. Cross-host routing remains a future projection over
+independently authoritative node daemons.
 
 ## Acceptance evidence
 
@@ -141,3 +173,9 @@ runs one service beside one broker and reaches it via SSH.
 - A stale broker process, missing broker job, shared service allocation, dirty
   source checkout, unhealthy worker, changed service identity, or malformed
   deployment receipt fails closed before frontier admission.
+- `service-start` returns before queueing/readiness completes; `service-wait`
+  reaches ready only after admission and deployment receipts exist.
+- Starting the same service id twice while it is active is rejected; stopping
+  and restarting creates two immutable deployment histories.
+- Managed stop and ungraceful daemon death leave no service process, broker job,
+  GPU allocation, card lock, or service endpoint.
