@@ -13,12 +13,12 @@
       "kind": "judge",
       "execution": "service",
       "judge": {
-        "identity": "PTXBench@<commit>+FIBServe@<commit-or-image>+dataset@<digest>+admission@sha256:<launch-spec-sha256>+executable@sha256:<executable-sha256>+definition:mha_bwd_d128+workload:38c3b07c-f006-5f5e-9860-ba214c805a6b",
+        "identity": "${KERNELINFRA_SERVICE_IDENTITY}+definition:mha_bwd_d128+workload:38c3b07c-f006-5f5e-9860-ba214c805a6b",
         "cwd": "../..",
         "command": [
           "bin/kernelinfra-fibserve",
           "--deployment-receipt",
-          "examples/fibserve_service/deployment.json",
+          "${KERNELINFRA_DEPLOYMENT_RECEIPT}",
           "--definition",
           "mha_bwd_d128",
           "--entry-point",

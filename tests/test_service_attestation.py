@@ -1,4 +1,5 @@
 import subprocess
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -203,6 +204,49 @@ class ServiceAttestationTests(unittest.TestCase):
     def test_only_loopback_service_urls_are_allowed(self):
         with self.assertRaisesRegex(ValueError, "loopback"):
             service_attestation._normalize_loopback_url("http://example.com:10000")
+
+    def test_fibserve_task_identity_binds_exact_deployment_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            deployment = {
+                "service_identity": "FIBServe@commit+admission@sha256:a"
+            }
+            marker = "deployment-receipt@sha256:" + fibserve._json_sha256(
+                deployment
+            )
+            task = root / "task.json"
+            task.write_text(
+                json.dumps(
+                    {
+                        "stages": [
+                            {
+                                "id": "service",
+                                "judge": {
+                                    "identity": deployment["service_identity"]
+                                    + "+"
+                                    + marker
+                                },
+                            }
+                        ]
+                    }
+                )
+            )
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    "KERNELINFRA_TASK": str(task),
+                    "KERNELINFRA_STAGE_ID": "service",
+                },
+                clear=False,
+            ):
+                fibserve._require_task_identity(deployment)
+                value = json.loads(task.read_text())
+                value["stages"][0]["judge"]["identity"] = deployment[
+                    "service_identity"
+                ]
+                task.write_text(json.dumps(value))
+                with self.assertRaisesRegex(RuntimeError, "deployment receipt"):
+                    fibserve._require_task_identity(deployment)
 
     def test_saved_admission_must_match_live_broker_and_service_identity(self):
         source = {

@@ -4,8 +4,15 @@ import socket
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from kernel_infra.contracts import ContractError
+from kernel_infra.cli import _atomic_new_json
+from kernel_infra.contracts import ContractError, digest_json
+from kernel_infra.service_binding import (
+    DEPLOYMENT_RECEIPT_TOKEN,
+    SERVICE_IDENTITY_TOKEN,
+    materialize_service_task,
+)
 from kernel_infra.service_contracts import load_service_spec
 from kernel_infra.service_store import ServiceStore
 from kernel_infra.services import ServiceManager
@@ -161,10 +168,52 @@ class ManagedServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue((directory / name).exists(), name)
         with self.assertRaisesRegex(ValueError, "already has active deployment"):
             self.manager.start(self.spec_path)
+        checked_template = (
+            Path(__file__).resolve().parents[1]
+            / "examples"
+            / "fibserve_service"
+            / "task.json"
+        )
+        template = self.root / "task.template.json"
+        template.write_bytes(checked_template.read_bytes())
+        output = self.root / "bound-task.json"
+        binding_output = self.root / "bound-task.binding.json"
+        deployment = {"service_identity": ready["service_identity"]}
+        with mock.patch(
+            "kernel_infra.services.load_service_receipt", return_value=deployment
+        ), mock.patch(
+            "kernel_infra.services.verify_service_receipt",
+            side_effect=RuntimeError("stale deployment"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "stale deployment"):
+                await self.manager.bind_task(
+                    deployment_id=ready["deployment_id"],
+                    template_path=template,
+                    output_path=output,
+                    binding_path=binding_output,
+                )
+        with mock.patch(
+            "kernel_infra.services.load_service_receipt", return_value=deployment
+        ), mock.patch("kernel_infra.services.verify_service_receipt"):
+            task, binding = await self.manager.bind_task(
+                deployment_id=ready["deployment_id"],
+                template_path=template,
+                output_path=output,
+                binding_path=binding_output,
+            )
+        self.assertEqual(task["task_id"], "b200-ptxbench-mha-bwd-service")
+        self.assertEqual(binding["deployment_id"], ready["deployment_id"])
         self.assertTrue(await self.manager.stop(ready["deployment_id"]))
         stopped = self.manager.store.read_state(ready["deployment_id"])
         self.assertEqual(stopped["state"], "stopped")
         self.assertIn("stop requested", stopped["reason"])
+        with self.assertRaisesRegex(ValueError, "not ready"):
+            await self.manager.bind_task(
+                deployment_id=ready["deployment_id"],
+                template_path=template,
+                output_path=output,
+                binding_path=binding_output,
+            )
 
         restarted = self.manager.start(self.spec_path)
         self.assertNotEqual(restarted["deployment_id"], ready["deployment_id"])
@@ -266,6 +315,138 @@ class ManagedServiceContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ContractError, "loopback"):
                 load_service_spec(path)
 
+
+class ServiceTaskBindingTests(unittest.TestCase):
+    def template(self, root: Path) -> Path:
+        path = root / "task.template.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "schema": "kernelinfra.task.v1",
+                    "task_id": "bound-task",
+                    "workloads": ["w0"],
+                    "comparison": {
+                        "primary_workloads": ["w0"],
+                        "relative_noise_floor": 0.01,
+                    },
+                    "stages": [
+                        {
+                            "id": "service-judge",
+                            "kind": "judge",
+                            "execution": "service",
+                            "judge": {
+                                "identity": SERVICE_IDENTITY_TOKEN + "+workload:w0",
+                                "cwd": str(root),
+                                "command": [
+                                    "kernelinfra-fibserve",
+                                    "--deployment-receipt",
+                                    DEPLOYMENT_RECEIPT_TOKEN,
+                                    "--definition",
+                                    "fixture",
+                                ],
+                            },
+                        }
+                    ],
+                }
+            )
+        )
+        return path
+
+    def test_materialization_binds_only_owned_fields_and_emits_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = self.template(root)
+            output = root / "task.json"
+            binding_output = root / "task.binding.json"
+            deployment_path = root / "deployment.json"
+            deployment = {"service_identity": "FIBServe@commit+admission@sha256:a"}
+            state = {
+                "deployment_id": "fibserve-abc123",
+                "service_id": "fibserve",
+                "service_sha256": "s" * 64,
+                "deployment_receipt": str(deployment_path),
+            }
+            task, binding = materialize_service_task(
+                template_path=template,
+                output_path=output,
+                binding_path=binding_output,
+                deployment_state=state,
+                deployment_receipt=deployment,
+            )
+            judge = task["stages"][0]["judge"]
+            self.assertIn("FIBServe@commit", judge["identity"])
+            self.assertIn("deployment:fibserve-abc123", judge["identity"])
+            self.assertIn(
+                "deployment-receipt@sha256:" + digest_json(deployment),
+                judge["identity"],
+            )
+            self.assertEqual(judge["command"][2], str(deployment_path.resolve()))
+            self.assertEqual(binding["task_sha256"], digest_json(task))
+            content = dict(binding)
+            claimed = content.pop("binding_sha256")
+            self.assertEqual(claimed, digest_json(content))
+
+    def test_materialization_rejects_missing_tokens_and_new_writer_refuses_overwrite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = self.template(root)
+            value = json.loads(template.read_text())
+            value["stages"][0]["judge"]["identity"] = "static"
+            template.write_text(json.dumps(value))
+            with self.assertRaisesRegex(ContractError, "identity token"):
+                materialize_service_task(
+                    template_path=template,
+                    output_path=root / "out.json",
+                    binding_path=root / "binding.json",
+                    deployment_state={
+                        "deployment_id": "d",
+                        "service_id": "s",
+                        "service_sha256": "x",
+                        "deployment_receipt": str(root / "deployment.json"),
+                    },
+                    deployment_receipt={"service_identity": "service"},
+                )
+
+            template = self.template(root)
+            other = root / "other"
+            with self.assertRaisesRegex(ContractError, "share one directory"):
+                materialize_service_task(
+                    template_path=template,
+                    output_path=other / "task.json",
+                    binding_path=other / "binding.json",
+                    deployment_state={
+                        "deployment_id": "d",
+                        "service_id": "s",
+                        "service_sha256": "x",
+                        "deployment_receipt": str(root / "deployment.json"),
+                    },
+                    deployment_receipt={"service_identity": "service"},
+                )
+            output = root / "new.json"
+            _atomic_new_json(output, {"value": 1})
+            with self.assertRaises(FileExistsError):
+                _atomic_new_json(output, {"value": 2})
+            self.assertEqual(json.loads(output.read_text()), {"value": 1})
+
+            template = self.template(root)
+            value = json.loads(template.read_text())
+            second = json.loads(json.dumps(value["stages"][0]))
+            second["id"] = "second-service"
+            value["stages"].append(second)
+            template.write_text(json.dumps(value))
+            with self.assertRaisesRegex(ContractError, "exactly one service stage"):
+                materialize_service_task(
+                    template_path=template,
+                    output_path=root / "multi.json",
+                    binding_path=root / "multi.binding.json",
+                    deployment_state={
+                        "deployment_id": "d",
+                        "service_id": "s",
+                        "service_sha256": "x",
+                        "deployment_receipt": str(root / "deployment.json"),
+                    },
+                    deployment_receipt={"service_identity": "service"},
+                )
 
 if __name__ == "__main__":
     unittest.main()

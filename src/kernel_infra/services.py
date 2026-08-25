@@ -19,7 +19,10 @@ from .service_attestation import (
     atomic_json,
     build_service_receipt,
     load_broker_admission_receipt,
+    load_service_receipt,
+    verify_service_receipt,
 )
+from .service_binding import materialize_service_task
 from .service_contracts import ManagedServiceSpec, load_service_spec
 from .service_store import SERVICE_TERMINAL_STATES, ServiceStore
 
@@ -168,6 +171,44 @@ class ServiceManager:
                 state["deployment_id"], asyncio.Event()
             ).set()
         return len(active)
+
+    async def bind_task(
+        self,
+        *,
+        deployment_id: str,
+        template_path: Path,
+        output_path: Path,
+        binding_path: Path,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        output = output_path.expanduser().resolve()
+        binding_output = binding_path.expanduser().resolve()
+        if output == binding_output:
+            raise ValueError("task output and binding receipt paths must differ")
+        if output.exists():
+            raise ValueError(f"refusing to overwrite task output: {output}")
+        if binding_output.exists():
+            raise ValueError(
+                f"refusing to overwrite task binding receipt: {binding_output}"
+            )
+        state = self.store.read_state(deployment_id)
+        if state.get("state") != "ready":
+            raise ValueError(
+                f"service deployment is not ready: {deployment_id} "
+                f"state={state.get('state')}"
+            )
+        receipt_path = Path(str(state["deployment_receipt"])).resolve()
+        receipt = load_service_receipt(receipt_path)
+        await asyncio.to_thread(verify_service_receipt, receipt)
+        current = self.store.read_state(deployment_id)
+        if current.get("state") != "ready" or current != state:
+            raise RuntimeError("service deployment changed during task binding")
+        return materialize_service_task(
+            template_path=template_path,
+            output_path=output,
+            binding_path=binding_output,
+            deployment_state=state,
+            deployment_receipt=receipt,
+        )
 
     async def _run(self, deployment_id: str, spec: ManagedServiceSpec) -> None:
         directory = self.store.deployment_dir(deployment_id)

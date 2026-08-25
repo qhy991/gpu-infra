@@ -16,6 +16,10 @@ kernelctl service-check /path/to/fibserve-service.json
 deployment_id=$(kernelctl service-start /path/to/fibserve-service.json)
 kernelctl service-wait "$deployment_id"
 kernelctl service-status "$deployment_id" --json
+kernelctl service-bind-task \
+  --deployment "$deployment_id" \
+  --template /path/to/task.template.json \
+  --out /path/to/task.json
 ```
 
 `service-start` snapshots the contract and returns immediately. The daemon runs
@@ -24,6 +28,16 @@ healthy worker, builds deployment v2, and marks the unique deployment id ready.
 At most one deployment per service id may be nonterminal. `service-stop`
 terminates the guarded broker client and releases the allocation. Restarting a
 stopped service creates a new history rather than overwriting evidence.
+
+Task templates place `${KERNELINFRA_SERVICE_IDENTITY}` in the selected service
+judge identity and `${KERNELINFRA_DEPLOYMENT_RECEIPT}` immediately after its
+single `--deployment-receipt` option. Binding requires a ready deployment,
+live-verifies it, appends deployment id and receipt SHA-256 to the judge
+identity, validates the complete output task, and emits a sibling binding
+receipt. Existing outputs are never overwritten. v0.7 requires exactly one
+service stage so it never emits a partially bound task.
+Template, output task, and binding receipt must share one directory, preserving
+the meaning of every relative path copied from the template.
 
 The checked `kernelinfra.service.v1` contract owns owner, URL, source root,
 identity prefix, cwd, command, explicit environment, exclusive GPU count,
@@ -87,7 +101,7 @@ A task then uses an `execution: service` judge with no per-request GPU resource:
   "kind": "judge",
   "execution": "service",
   "judge": {
-    "identity": "PTXBench@<commit>+FIBServe@<commit-or-image>+dataset@<digest>",
+    "identity": "PTXBench@<commit>+FIBServe@<commit-or-image>+dataset@<digest>+admission@sha256:<launch-spec>+executable@sha256:<executable>+deployment-receipt@sha256:<canonical-receipt>",
     "cwd": "/path/to/KernelInfra",
     "command": [
       "bin/kernelinfra-fibserve",
@@ -108,6 +122,10 @@ verifies the same broker peer/job/admission, source commit/tree, worker health,
 and service root again. A missing job, dirty source, unhealthy worker, changed
 broker process, admission drift, endpoint drift, or malformed response yields
 `validity=unknown` and cannot enter the frontier.
+
+The task judge identity must bind both the service identity and the canonical
+deployment-receipt SHA-256. `service-bind-task` adds both automatically;
+lower-level manual integrations must do so explicitly.
 
 The admission receipt proves the actual submitted launch contract without
 exposing environment values. It does not hash arbitrary files merely referenced

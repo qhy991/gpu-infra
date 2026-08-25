@@ -243,10 +243,16 @@ def _require_task_identity(deployment: dict[str, Any]) -> None:
         for stage in task.get("stages", [])
         if stage.get("id") == stage_id
     ]
-    if len(identities) != 1 or str(deployment["service_identity"]) not in str(
-        identities[0]
+    identity = str(identities[0]) if len(identities) == 1 else ""
+    receipt_marker = "deployment-receipt@sha256:" + _json_sha256(deployment)
+    if (
+        len(identities) != 1
+        or str(deployment["service_identity"]) not in identity
+        or receipt_marker not in identity
     ):
-        raise RuntimeError("task judge identity does not bind service deployment identity")
+        raise RuntimeError(
+            "task judge identity does not bind service identity and deployment receipt"
+        )
 
 
 def _json_sha256(value: Any) -> str:

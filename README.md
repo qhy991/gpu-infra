@@ -116,7 +116,13 @@ bin/kernelctl service-check examples/fibserve_service/service.json
 deployment_id=$(bin/kernelctl service-start examples/fibserve_service/service.json)
 bin/kernelctl service-wait "$deployment_id"
 bin/kernelctl service-status "$deployment_id" --json
-# Submit as many task runs as needed using the generated deployment receipt.
+bin/kernelctl service-bind-task \
+  --deployment "$deployment_id" \
+  --template examples/fibserve_service/task.json \
+  --out examples/fibserve_service/bound-task.json
+bin/kernelctl submit-many \
+  --task examples/fibserve_service/bound-task.json \
+  /path/to/candidate-a /path/to/candidate-b
 bin/kernelctl service-stop "$deployment_id"
 ```
 
@@ -130,6 +136,13 @@ healthy workers, broker-issued launch/executable/environment digests, service
 root, and clean source commit/tree both before and after each request. The
 checked service/task templates are in
 [`examples/fibserve_service/`](examples/fibserve_service/).
+
+`service-bind-task` accepts only a ready deployment, live-verifies its receipt,
+replaces two exact tokens in one service stage, validates the whole task, and
+atomically creates both `task.json` and `task.json.binding.json`. It never
+overwrites existing outputs.
+Template, task output, and binding receipt stay in one directory so relative
+task paths retain exactly the template's meaning.
 
 `kernelctl service-attest` remains available as a low-level import path for an
 externally launched broker-held service.
@@ -177,6 +190,10 @@ stdout.log / stderr.log   complete guarded gpu-run/service stream
 admission.json            broker-issued started-job receipt
 deployment.json           live service/source/broker attestation
 ```
+
+Each materialized task has a sibling
+`kernelinfra.service-task-binding.v1` receipt recording template, deployment,
+receipt, output task, stage, and canonical SHA-256 identities.
 
 ## Evaluator contract
 

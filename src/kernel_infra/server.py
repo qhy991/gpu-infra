@@ -183,4 +183,12 @@ class KernelInfraServer:
         if operation == "service_stop":
             stopped = await self.services.stop(str(request["deployment_id"]))
             return {"ok": True, "stopped": stopped}
+        if operation == "service_bind_task":
+            task, binding = await self.services.bind_task(
+                deployment_id=str(request["deployment_id"]),
+                template_path=Path(request["template"]),
+                output_path=Path(request["output"]),
+                binding_path=Path(request["binding_output"]),
+            )
+            return {"ok": True, "task": task, "binding": binding}
         raise ValueError(f"unknown operation: {operation!r}")

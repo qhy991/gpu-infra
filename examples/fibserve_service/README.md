@@ -5,9 +5,12 @@ port, source/evaluator/dataset/config identities, command, and environment, then
 run `kernelctl service-start`. Once `service-wait` reports ready, the immutable
 deployment directory owns `admission.json` and `deployment.json`.
 
-`task.json` is the corresponding candidate-evaluation template. Bind its judge
-identity and deployment-receipt path to the ready deployment. The identity
-includes the deployment's launch-spec and executable SHA-256 values.
+`task.json` is the corresponding candidate-evaluation template. Materialize it
+with `kernelctl service-bind-task --deployment ... --template task.json --out
+bound-task.json`. The daemon live-verifies the deployment, replaces only the
+two exact tokens, validates the result, and emits a sibling binding receipt.
+The identity includes deployment id, deployment-receipt, launch-spec, and
+executable SHA-256 values.
 
 For externally launched services, the lower-level alternative remains broker
 v0.6 `gpu-run --receipt-out` followed by `kernelctl service-attest

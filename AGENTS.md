@@ -39,6 +39,9 @@
   persisted broker job id before marking a run interrupted.
 - Managed gpu-run service clients use the same pipe-lease cleanup and startup
   reconciliation boundary. Never auto-relaunch an uncertain deployment.
+- Service task binding may replace only the exact service identity and
+  deployment receipt tokens in one selected service stage. Validate the whole
+  output, emit a binding receipt, and refuse all output overwrites.
 - Treat connection, broker, timeout, missing-result, and malformed-result
   failures as `unknown` validity and fail closed for frontier admission.
 

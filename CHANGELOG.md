@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0 — 2026-08-25
+
+- Add live-verified `service-bind-task` materialization from one ready managed
+  deployment and one checked task template.
+- Replace only the selected service stage's exact identity and deployment-path
+  tokens; reject ambiguous/missing tokens, multiple implicit service stages,
+  stopped/interrupted/stale deployments, and any unconsumed token.
+- Bind deployment id and canonical deployment-receipt SHA-256 into the judge
+  identity, validate the complete output task before writing, and emit a
+  content-addressed `kernelinfra.service-task-binding.v1` receipt.
+- Refuse to overwrite task or binding outputs using atomic create-only writes,
+  so task materialization preserves immutable experiment inputs.
+
 ## 0.6.0 — 2026-08-25
 
 - Add strict `kernelinfra.service.v1` contracts and immutable deployment ids for

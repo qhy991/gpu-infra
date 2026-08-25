@@ -1,4 +1,4 @@
-# Kernel Infra v0.6 design contract
+# Kernel Infra v0.7 design contract
 
 ## Goal
 
@@ -117,6 +117,11 @@ submitting agent.
 16. Managed gpu-run clients use the same daemon-owned pipe lease as stages.
     Normal stop, daemon shutdown, daemon death, and startup reconciliation all
     release the broker allocation; uncertain deployments are never replayed.
+17. A task may bind a managed deployment only while it is ready and its
+    deployment receipt verifies live. Materialization replaces exactly one
+    service identity token and one receipt-path token in one selected service
+    stage, validates the complete task, and creates both task and binding
+    receipt without overwriting existing files.
 
 ## Failure semantics
 
@@ -140,10 +145,13 @@ submitting agent.
   the guarded client and broker allocation terminate.
 - Daemon restart with a nonterminal deployment: reconcile its broker job, mark
   `interrupted`, and require a new deployment id; never auto-relaunch.
+- Task binding from a stopped/interrupted/stale deployment, ambiguous service
+  stage, malformed token, or existing output path: reject without writing an
+  executable task.
 
 ## Deliberate exclusions
 
-v0.6 is a trusted single-host service. It attests broker-issued launch and
+v0.7 is a trusted single-host service. It attests broker-issued launch and
 environment digests plus live broker/service/source custody. Files referenced by
 the admitted argv—dataset, model, image, config, and compatibility assets—remain
 task-owned identities and must be fingerprinted by the task/evaluator rather
@@ -179,3 +187,6 @@ independently authoritative node daemons.
   and restarting creates two immutable deployment histories.
 - Managed stop and ungraceful daemon death leave no service process, broker job,
   GPU allocation, card lock, or service endpoint.
+- A ready deployment plus checked task template materializes one validated task
+  and binding receipt; workload, comparison, ABI, and non-service judge fields
+  remain byte-for-byte JSON values from the template.

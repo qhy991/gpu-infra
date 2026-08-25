@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import signal
 import socket
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +96,16 @@ def _parser() -> argparse.ArgumentParser:
     _client_socket(service_stop)
     service_stop.add_argument("deployment_id")
 
+    service_bind = sub.add_parser(
+        "service-bind-task",
+        help="materialize one task template from a ready service deployment",
+    )
+    _client_socket(service_bind)
+    service_bind.add_argument("--deployment", required=True)
+    service_bind.add_argument("--template", type=Path, required=True)
+    service_bind.add_argument("--out", type=Path, required=True)
+    service_bind.add_argument("--binding-out", type=Path)
+
     submit = sub.add_parser("submit", help="snapshot and submit one candidate")
     _client_socket(submit)
     submit.add_argument("--task", type=Path, required=True)
@@ -152,6 +164,8 @@ def main(argv: list[str] | None = None) -> int:
         return _service_wait(args)
     if args.command == "service-stop":
         return _service_stop(args)
+    if args.command == "service-bind-task":
+        return _service_bind_task(args)
     if args.command == "submit":
         return _submit(args)
     if args.command == "submit-many":
@@ -374,6 +388,50 @@ def _service_stop(args: argparse.Namespace) -> int:
     return 0
 
 
+def _service_bind_task(args: argparse.Namespace) -> int:
+    output = args.out.expanduser().resolve()
+    binding_output = (
+        args.binding_out.expanduser().resolve()
+        if args.binding_out is not None
+        else Path(str(output) + ".binding.json")
+    )
+    if output.exists():
+        print(f"kernelctl: refusing to overwrite task output: {output}", file=sys.stderr)
+        return 1
+    if binding_output.exists():
+        print(
+            f"kernelctl: refusing to overwrite task binding receipt: {binding_output}",
+            file=sys.stderr,
+        )
+        return 1
+    response = _request(
+        args.socket,
+        {
+            "op": "service_bind_task",
+            "deployment_id": args.deployment,
+            "template": str(args.template.expanduser().resolve()),
+            "output": str(output),
+            "binding_output": str(binding_output),
+        },
+    )
+    if response is None:
+        return 1
+    # Write provenance first: a crash cannot leave an executable task without
+    # its binding receipt. Both writes are individually atomic and no-overwrite.
+    try:
+        _atomic_new_json(binding_output, response["binding"])
+        _atomic_new_json(output, response["task"])
+    except FileExistsError as exc:
+        print(f"kernelctl: refusing to overwrite output: {exc.filename}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"kernelctl: cannot write bound task outputs: {exc}", file=sys.stderr)
+        return 1
+    print(str(output))
+    print(str(binding_output))
+    return 0
+
+
 def _submit(args: argparse.Namespace) -> int:
     response = _request(
         args.socket,
@@ -503,6 +561,24 @@ def _request(socket_path: Path, value: dict[str, Any]) -> dict[str, Any] | None:
         print(f"kernelctl: {response.get('error', 'request failed')}", file=sys.stderr)
         return None
     return response
+
+
+def _atomic_new_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o644)
+        os.link(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
 
 
 def _print_runs(runs: list[dict[str, Any]]) -> None:

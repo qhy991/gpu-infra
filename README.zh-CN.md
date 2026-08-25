@@ -115,8 +115,17 @@ kernelctl service-check /path/to/fibserve-service.json
 deployment_id=$(kernelctl service-start /path/to/fibserve-service.json)
 kernelctl service-wait "$deployment_id"
 kernelctl service-status "$deployment_id" --json
+kernelctl service-bind-task \
+  --deployment "$deployment_id" \
+  --template examples/fibserve_service/task.json \
+  --out examples/fibserve_service/bound-task.json
 kernelctl service-stop "$deployment_id"
 ```
+
+`service-bind-task` 只接受 live-verified ready deployment，只替换一个 service stage
+中的两个精确 token，随后校验完整 task，并以 create-only 原子写入 task 与 sibling
+binding receipt；已有输出不会被覆盖。
+三者必须位于同一目录，确保 task 中相对路径的语义不会因 materialization 改变。
 
 每次候选请求前后，adapter 都会复核 broker peer、独占 job/GPU、launch spec、
 executable/environment digest、健康 worker、service root，以及干净源码 checkout
