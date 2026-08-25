@@ -21,7 +21,7 @@ class KernelInfraServer:
         self._server: asyncio.AbstractServer | None = None
 
     async def start(self) -> int:
-        recovered = self.manager.recover_interrupted()
+        recovered = await self.manager.recover_interrupted()
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
         if self.socket_path.exists():
             if not stat.S_ISSOCK(self.socket_path.stat().st_mode):

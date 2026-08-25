@@ -6,6 +6,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from kernel_infra.contracts import load_task
 from kernel_infra.runner import RunManager
 from kernel_infra.store import RunStore
 
@@ -235,6 +236,33 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual([event["event"] for event in events], ["start", "end", "start", "end"])
         self.assertGreaterEqual(events[2]["at"], events[1]["at"])
+
+    async def test_recovery_reconciles_broker_before_interrupting_run(self):
+        candidate = self.candidate("orphan")
+        state = self.store.create_run(
+            task=load_task(self.task_path), candidate=candidate, label="orphan"
+        )
+        self.store.update_state(
+            state["run_id"],
+            "test_running",
+            state="running",
+            broker_job_id="gpuq-orphan",
+            gpu_ids=[1],
+        )
+        calls = []
+
+        async def fake_cancel(job_id):
+            calls.append(job_id)
+            return True
+
+        self.manager._cancel_broker_job = fake_cancel
+        recovered = await self.manager.recover_interrupted()
+        self.assertEqual(recovered, 1)
+        self.assertEqual(calls, ["gpuq-orphan"])
+        terminal = self.store.read_state(state["run_id"])
+        self.assertEqual(terminal["state"], "interrupted")
+        events = (self.store.run_dir(state["run_id"]) / "events.jsonl").read_text()
+        self.assertIn("recovery_broker_reconciled", events)
 
 
 if __name__ == "__main__":

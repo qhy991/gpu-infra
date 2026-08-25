@@ -25,6 +25,9 @@
   and profilers must use `exclusive` capacity.
 - A `service` stage is a CPU transport call, not a second allocator. Record the
   service commit/image and broker-held deployment identity in the judge field.
+- Every stage command runs behind `exec_guard.py`; its pipe lease and process
+  group are the canonical crash-cleanup boundary. Startup must reconcile any
+  persisted broker job id before marking a run interrupted.
 - Treat connection, broker, timeout, missing-result, and malformed-result
   failures as `unknown` validity and fail closed for frontier admission.
 

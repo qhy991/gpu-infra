@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kernel-infra"
-version = "0.2.0"
+version = "0.2.1"
 description = "Agent-native kernel evaluation control and evidence plane"
 readme = "README.md"
 requires-python = ">=3.10"

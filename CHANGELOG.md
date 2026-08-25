@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1 — 2026-08-25
+
+- Run every local, service, and broker command behind a parent-owned pipe lease.
+- Terminate and reap the complete child process group when the daemon dies,
+  including deterministic cleanup of labeled Docker evaluator containers.
+- Reconcile persisted broker job ids before interrupted runs become visible
+  after restart; broker unreachability now fails daemon startup closed.
+- Preserve interrupted as a terminal evidence outcome; never replay an
+  uncertain candidate automatically.
+
 ## 0.2.0 — 2026-08-25
 
 - Add bounded `local` stages so CPU-only compilation does not reserve a GPU.

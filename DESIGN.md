@@ -72,16 +72,22 @@ submitting agent.
    error.
 6. Cancellation interrupts `gpu-run`, which asks the broker to cancel and
    release its allocation.
-7. Daemon restart marks unfinished runs `interrupted`; it does not invent
-   recovery or resubmit work.
-8. Only `completed + valid + complete workload timing` results enter the
+7. Every stage command is a child of a pipe-lease execution guard. Daemon death
+   closes the lease in the kernel; the guard terminates and reaps the real child
+   process group.
+8. Startup reconciles every persisted broker job id before marking unfinished
+   runs `interrupted`. It never invents results or resubmits uncertain work.
+9. Only `completed + valid + complete workload timing` results enter the
    frontier reducer.
-9. Frontier comparison never crosses task digests.
+10. Frontier comparison never crosses task digests.
 
 ## Failure semantics
 
 - Broker unreachable, queue timeout, run timeout, judge crash, missing result,
-  malformed result, daemon restart: run validity is `unknown`; frontier closed.
+  or malformed result: run validity is `unknown`; frontier closed.
+- Ungraceful daemon death closes every stage lease. Guards terminate local and
+  client process groups; broker connection loss or startup reconciliation
+  cancels GPU jobs. Restart records `interrupted` and never replays the run.
 - Judge reports incorrect: validity is `invalid`; later stages do not run.
 - Judge passes correctness but a later benchmark fails: correctness remains
   recorded, run outcome is not completed, frontier closed.
@@ -96,9 +102,9 @@ v0.2 is a trusted single-host service. It records but does not automatically
 attest that a `service` stage's evaluator deployment is broker-held. It does not
 provide hostile tenant isolation, a cross-host global scheduler,
 priority/preemption, GPU memory quotas, automatic agent spawning, evaluator
-implementation, or live-run recovery after daemon failure. Remote use runs one
-service beside one broker and reaches it via SSH. Cross-host routing is admitted
-only after this node contract is proven on a real A800 run.
+implementation, or live-command resumption after daemon failure. Remote use
+runs one service beside one broker and reaches it via SSH. Cross-host routing is
+admitted only after this node contract is proven on a real A800 run.
 
 ## Acceptance evidence
 
@@ -111,3 +117,5 @@ only after this node contract is proven on a real A800 run.
 - An incorrect candidate never reaches its benchmark stage.
 - Missing/malformed judge output is reported as infrastructure failure rather
   than incorrectness or success.
+- Killing the daemon leaves no evaluator process, labeled container, active
+  broker job, or GPU allocation; restart preserves the run as interrupted.

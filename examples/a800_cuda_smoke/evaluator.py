@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import hashlib
 import json
 import os
+import signal
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
 STAGE_SCHEMA = "kernelinfra.stage-result.v1"
 ARTIFACT_DIR_NAME = "a800_cuda_smoke"
+_ACTIVE_CONTAINER: str | None = None
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -41,6 +45,51 @@ def _required_path(name: str) -> Path:
     return Path(value).resolve()
 
 
+def _container_name() -> str:
+    run_id = os.environ["KERNELINFRA_RUN_ID"]
+    stage_id = os.environ["KERNELINFRA_STAGE_ID"]
+    return f"kernelinfra-{run_id[-12:]}-{stage_id}"
+
+
+def _cleanup_container() -> None:
+    global _ACTIVE_CONTAINER
+    name = _ACTIVE_CONTAINER
+    if not name:
+        return
+    deadline = time.monotonic() + 3.0
+    while True:
+        subprocess.run(
+            ["docker", "rm", "--force", name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        present = subprocess.run(
+            ["docker", "ps", "--all", "--quiet", "--filter", f"name=^/{name}$"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if not present.stdout.strip() or time.monotonic() >= deadline:
+            _ACTIVE_CONTAINER = None
+            return
+        time.sleep(0.1)
+
+
+def _install_cleanup(container_name: str) -> None:
+    global _ACTIVE_CONTAINER
+    _ACTIVE_CONTAINER = container_name
+    atexit.register(_cleanup_container)
+
+    def stop(signum: int, _frame: object) -> None:
+        _cleanup_container()
+        raise SystemExit(128 + signum)
+
+    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, stop)
+
+
 def _docker_base(
     *,
     image_id: str,
@@ -61,6 +110,12 @@ def _docker_base(
         "no-new-privileges",
         "--pids-limit",
         "256",
+        "--name",
+        _container_name(),
+        "--label",
+        f"kernelinfra.run_id={os.environ['KERNELINFRA_RUN_ID']}",
+        "--label",
+        f"kernelinfra.stage_id={os.environ['KERNELINFRA_STAGE_ID']}",
     ]
     if needs_gpu:
         physical_gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
@@ -221,6 +276,7 @@ def main(argv: list[str] | None = None) -> int:
     candidate_dir = _required_path("KERNELINFRA_CANDIDATE_DIR")
     stage_id = os.environ["KERNELINFRA_STAGE_ID"]
     stage_kind = os.environ["KERNELINFRA_STAGE_KIND"]
+    _install_cleanup(_container_name())
     judge_dir = Path(__file__).resolve().parent
     candidate = candidate_dir / "kernel.cu"
     artifact_dir = run_dir / "artifacts" / ARTIFACT_DIR_NAME

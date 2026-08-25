@@ -50,6 +50,18 @@ bin/kernelctl frontier --task examples/a800_smoke/task.json
 `submit` and `submit-many` are non-blocking by default. Use `kernelctl wait
 <run-id>` only when a caller intentionally wants to wait.
 
+## Crash fail-closed
+
+Every stage command runs behind a small pipe-lease execution guard. The daemon
+owns the write end; `SIGKILL`, process exit, or descriptor loss closes it in the
+kernel. The guard then terminates and reaps the actual child process group.
+Container evaluators additionally use deterministic names and labels so signal
+cleanup removes the Docker daemon object, not only its CLI process.
+
+On restart, Kernel Infra first reconciles every persisted broker job id through
+the broker socket. Only after that succeeds are unfinished runs made terminal as
+`interrupted`; they are never automatically replayed.
+
 ## Real CUDA container task
 
 `examples/a800_cuda_smoke/` is a real A800 qualification path rather than the

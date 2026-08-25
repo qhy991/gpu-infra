@@ -7,6 +7,7 @@ import json
 import os
 import re
 import signal
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -39,8 +40,57 @@ class RunManager:
         self._stop_reasons: dict[str, str] = {}
         self._local_slots = asyncio.Semaphore(local_capacity)
 
-    def recover_interrupted(self) -> int:
+    async def recover_interrupted(self) -> int:
+        active = [
+            state
+            for state in self.store.list_states()
+            if state.get("state") not in TERMINAL_STATES
+        ]
+        for state in active:
+            broker_job_id = state.get("broker_job_id")
+            if not broker_job_id:
+                continue
+            cancelled = await self._cancel_broker_job(str(broker_job_id))
+            self.store.update_state(
+                state["run_id"],
+                "recovery_broker_reconciled",
+                reason=(
+                    f"startup reconciled broker job {broker_job_id}; "
+                    f"active_cancelled={str(cancelled).lower()}"
+                ),
+            )
         return self.store.recover_interrupted()
+
+    async def _cancel_broker_job(self, job_id: str) -> bool:
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(self.broker_socket), timeout=5.0
+            )
+        except (OSError, asyncio.TimeoutError) as exc:
+            raise RuntimeError(
+                f"cannot reconcile broker job {job_id} at {self.broker_socket}: {exc}"
+            ) from exc
+        try:
+            request = json.dumps({"op": "cancel", "job_id": job_id}) + "\n"
+            writer.write(request.encode("utf-8"))
+            await writer.drain()
+            line = await asyncio.wait_for(reader.readline(), timeout=30.0)
+            response = json.loads(line)
+            if response.get("type") != "cancelled" or not isinstance(
+                response.get("ok"), bool
+            ):
+                raise RuntimeError(f"invalid broker cancel response: {response!r}")
+            return bool(response["ok"])
+        except (OSError, asyncio.TimeoutError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"failed to reconcile broker job {job_id}: {exc}"
+            ) from exc
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
 
     def submit(
         self, *, task_path: Path, candidate: Path, label: str | None = None
@@ -250,19 +300,33 @@ class RunManager:
                 f"{stage.execution}_started",
                 state="running",
             )
+        lease_read_fd, lease_write_fd = os.pipe()
+        guard = Path(__file__).with_name("exec_guard.py")
+        guarded_command = [
+            sys.executable,
+            str(guard),
+            "--lease-fd",
+            str(lease_read_fd),
+            "--",
+            *command,
+        ]
         try:
             process = await asyncio.create_subprocess_exec(
-                *command,
+                *guarded_command,
                 cwd=str(stage.cwd),
                 env=process_environment,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
+                pass_fds=(lease_read_fd,),
             )
         except BaseException:
+            os.close(lease_read_fd)
+            os.close(lease_write_fd)
             if local_slot:
                 self._local_slots.release()
             raise
+        os.close(lease_read_fd)
         self._processes[run_id] = process
         assert process.stdout is not None and process.stderr is not None
         stdout_task = asyncio.create_task(
@@ -290,6 +354,10 @@ class RunManager:
         finally:
             if self._processes.get(run_id) is process and process.returncode is not None:
                 self._processes.pop(run_id, None)
+            try:
+                os.close(lease_write_fd)
+            except OSError:
+                pass
             if local_slot:
                 self._local_slots.release()
 

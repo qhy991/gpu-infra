@@ -48,6 +48,16 @@ bin/kernelctl frontier --task examples/a800_smoke/task.json
 `submit` / `submit-many` 默认立即返回。只有调用者明确需要同步等待时才使用
 `kernelctl wait <run-id>`。
 
+## Crash fail-closed
+
+每个 stage command 都由 pipe-lease execution guard 托管。daemon 持有写端；
+`SIGKILL`、进程退出或 descriptor 丢失会由内核关闭 lease，guard 随即终止并回收真实
+子进程组。容器 evaluator 还使用确定性 name/label，确保清理 Docker daemon 中的
+container，而不只是杀掉 CLI。
+
+重启时，Kernel Infra 先通过 broker socket 对所有持久化 broker job id 做幂等
+reconciliation，成功后才把未终态 run 归档为 `interrupted`；绝不自动重放不确定候选。
+
 ## 真实 CUDA 容器任务
 
 `examples/a800_cuda_smoke/` 不再只是 PyTorch 调度 fixture。它按不可变 image ID
