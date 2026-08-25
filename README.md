@@ -39,6 +39,8 @@ The v0.7.0 live service-task binding qualification is
 [the task-binding report](docs/v0.7.0-service-task-binding-qualification-2026-08-25.md).
 The v0.8.0 consumer protection and idle-grace qualification is
 [the consumer-policy report](docs/v0.8.0-service-consumer-qualification-2026-08-25.md).
+The v0.9.0 cross-host routing qualification is
+[the fleet-routing report](docs/v0.9.0-fleet-routing-qualification-2026-08-25.md).
 The evaluator adapters and their trust boundaries are documented in
 [the integration guide](docs/integrations.md).
 
