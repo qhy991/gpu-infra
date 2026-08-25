@@ -85,7 +85,7 @@ records catalog/task/candidate/bundle identities, requirements, every node
 observation, eligibility reasons, selected node observation, remote receive
 receipt, locator, status/error, and canonical route-receipt SHA-256.
 
-Fleet tasks currently must name absolute remote evaluator cwd paths. v0.10 moves
+Fleet tasks currently must name absolute remote evaluator cwd paths. Fleet moves
 task/candidate input, not evaluator installations or arbitrary dependency trees.
 
 ## Locator operations
@@ -112,3 +112,41 @@ catalog digest, locator, operation, response/error, timestamp, and canonical
 SHA-256 without overwriting. SSH/daemon/command failure is `unknown`. Route or
 catalog tampering, remote bundle/run drift, and frontier identity drift are
 rejected before use.
+
+## Terminal artifact mirror
+
+The node remains the lifecycle and evidence authority, but a caller may fetch a
+complete terminal run for offline inspection:
+
+```bash
+kernelctl fleet-fetch \
+  --catalog catalog.json \
+  --route route.json \
+  --out mirrors/my-run \
+  --timeout 300
+```
+
+The hidden node-side exporter accepts only the exact routed terminal run and
+streams a manifest followed by regular files. Export and receive both enforce a
+1 GiB default byte limit and 10,000-file limit. The receiver rejects traversal,
+links/devices, duplicates, missing/extra files, truncation, size drift, and
+content drift. It checks task, candidate, run, route, and catalog identity,
+then atomically installs a create-only directory:
+
+```text
+catalog.json
+route.json
+artifact-manifest.json   node-run authority and file inventory
+mirror.json              mirror-only validation statement
+artifacts/               exact node run-directory copy
+```
+
+Only one aggregate artifact-set SHA-256 crosses this transfer boundary. There
+are no per-file, manifest, or mirror digests. This digest changes the action:
+a mismatch rejects the whole mirror. Existing task/candidate/route identities
+are reused rather than fingerprinted again.
+
+`authority=mirror-only` is deliberate. A mirror never supplies remote status,
+frontier, cancellation, routing load, or failover decisions. A nonterminal run,
+SSH/daemon error, malformed archive, identity mismatch, or existing output path
+fails without creating a successful mirror directory.

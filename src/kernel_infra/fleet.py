@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import hashlib
+import io
 import json
 import math
 import os
@@ -27,7 +28,12 @@ BUNDLE_SCHEMA = "kernelinfra.fleet-bundle.v1"
 ROUTE_SCHEMA = "kernelinfra.route-receipt.v1"
 RECEIVE_SCHEMA = "kernelinfra.fleet-receive.v1"
 REMOTE_OBSERVATION_SCHEMA = "kernelinfra.remote-observation.v1"
+ARTIFACT_MANIFEST_SCHEMA = "kernelinfra.artifact-manifest.v1"
+ARTIFACT_MIRROR_SCHEMA = "kernelinfra.artifact-mirror.v1"
 MAX_BUNDLE_BYTES = 256 * 1024 * 1024
+MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
+MAX_ARTIFACT_FILES = 10_000
+MAX_ARTIFACT_MANIFEST_BYTES = 16 * 1024 * 1024
 _ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,95}$")
 _SSH = re.compile(r"^[A-Za-z0-9_.@:-]+$")
 _REMOTE_PATH = re.compile(r"^/[A-Za-z0-9_./-]+$")
@@ -611,3 +617,388 @@ def remote_observation_receipt(
         "error": error,
     }
     return {**value, "observation_sha256": digest_json(value)}
+
+
+def _artifact_set_sha256(files: list[tuple[Path, str]]) -> str:
+    """One transfer-boundary digest, not one fingerprint per artifact."""
+    digest = hashlib.sha256()
+    for path, relative in sorted(files, key=lambda item: item[1]):
+        encoded = relative.encode("utf-8")
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+        digest.update(path.stat().st_size.to_bytes(8, "big"))
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _safe_artifact_relative(name: str) -> PurePosixPath:
+    path = PurePosixPath(name)
+    if (
+        path.is_absolute()
+        or not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise RuntimeError(f"unsafe artifact path: {name!r}")
+    return path
+
+
+def _safe_artifact_archive_path(name: str) -> tuple[str, PurePosixPath | None]:
+    path = _safe_artifact_relative(name)
+    if path.as_posix() == "artifact-manifest.json":
+        return "manifest", None
+    if path.parts[0] != "artifacts" or len(path.parts) < 2:
+        raise RuntimeError(f"unexpected artifact archive path: {name!r}")
+    return "artifact", PurePosixPath(*path.parts[1:])
+
+
+def _validate_artifact_manifest(
+    value: Any, *, max_bytes: int
+) -> dict[str, Any]:
+    fields = {
+        "schema",
+        "authority",
+        "terminal_at",
+        "run_id",
+        "task_id",
+        "task_sha256",
+        "candidate_sha256",
+        "terminal_state",
+        "run_dir",
+        "total_bytes",
+        "files",
+        "artifact_set_sha256",
+    }
+    if not isinstance(value, dict) or set(value) != fields:
+        raise RuntimeError("artifact manifest has invalid fields")
+    if (
+        value.get("schema") != ARTIFACT_MANIFEST_SCHEMA
+        or value.get("authority") != "node-run"
+    ):
+        raise RuntimeError("artifact manifest authority drift")
+    if not isinstance(value.get("artifact_set_sha256"), str) or not re.fullmatch(
+        r"[0-9a-f]{64}", value["artifact_set_sha256"]
+    ):
+        raise RuntimeError("artifact manifest set identity is invalid")
+    if (
+        not isinstance(value.get("run_id"), str)
+        or not _RUN_ID.fullmatch(value["run_id"])
+        or not isinstance(value.get("task_id"), str)
+        or not _ID.fullmatch(value["task_id"])
+    ):
+        raise RuntimeError("artifact manifest has invalid run/task identity")
+    for name in ("task_sha256", "candidate_sha256"):
+        if not isinstance(value.get(name), str) or not re.fullmatch(
+            r"[0-9a-f]{64}", value[name]
+        ):
+            raise RuntimeError(f"artifact manifest has invalid {name}")
+    if value.get("terminal_state") not in {
+        "completed",
+        "rejected",
+        "infra_error",
+        "cancelled",
+        "interrupted",
+    }:
+        raise RuntimeError("artifact manifest is not terminal")
+    if not isinstance(value.get("terminal_at"), str) or not value["terminal_at"]:
+        raise RuntimeError("artifact manifest has no terminal timestamp")
+    if not isinstance(value.get("run_dir"), str) or not Path(
+        value["run_dir"]
+    ).is_absolute():
+        raise RuntimeError("artifact manifest run directory is invalid")
+    total_bytes = value.get("total_bytes")
+    if (
+        isinstance(total_bytes, bool)
+        or not isinstance(total_bytes, int)
+        or total_bytes < 0
+        or total_bytes > max_bytes
+    ):
+        raise RuntimeError("artifact manifest byte total is invalid")
+    rows = value.get("files")
+    if not isinstance(rows, list) or len(rows) > MAX_ARTIFACT_FILES:
+        raise RuntimeError("artifact manifest file list is invalid")
+    paths: list[str] = []
+    calculated_total = 0
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"path", "size"}:
+            raise RuntimeError("artifact manifest file row is invalid")
+        if not isinstance(row.get("path"), str):
+            raise RuntimeError("artifact manifest file path is invalid")
+        normalized = _safe_artifact_relative(row["path"]).as_posix()
+        if normalized != row["path"]:
+            raise RuntimeError("artifact manifest file path is not normalized")
+        size = row.get("size")
+        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+            raise RuntimeError("artifact manifest file size is invalid")
+        paths.append(normalized)
+        calculated_total += size
+    if paths != sorted(set(paths)):
+        raise RuntimeError("artifact manifest paths must be sorted and unique")
+    if calculated_total != total_bytes:
+        raise RuntimeError("artifact manifest byte total disagrees with files")
+    return value
+
+
+def build_artifact_manifest(
+    *, run_state: dict[str, Any], max_bytes: int
+) -> tuple[dict[str, Any], list[tuple[Path, str]]]:
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+        raise RuntimeError("artifact export byte limit must be positive")
+    if run_state.get("state") not in {
+        "completed",
+        "rejected",
+        "infra_error",
+        "cancelled",
+        "interrupted",
+    }:
+        raise RuntimeError("fleet artifact export requires a terminal run")
+    source_run_dir = Path(str(run_state.get("run_dir", ""))).expanduser()
+    if source_run_dir.is_symlink():
+        raise RuntimeError(f"run artifact directory is a symlink: {source_run_dir}")
+    run_dir = source_run_dir.resolve()
+    if not run_dir.is_dir():
+        raise RuntimeError(f"run artifact directory is missing: {run_dir}")
+    files: list[tuple[Path, str]] = []
+    total = 0
+    for root_text, directories, names in os.walk(run_dir, followlinks=False):
+        root = Path(root_text)
+        for directory in directories:
+            if (root / directory).is_symlink():
+                raise RuntimeError(f"run artifacts contain symlink: {root / directory}")
+        for name in sorted(names):
+            path = root / name
+            if path.is_symlink() or not path.is_file():
+                raise RuntimeError(f"run artifacts contain non-file: {path}")
+            relative = path.relative_to(run_dir).as_posix()
+            size = path.stat().st_size
+            total += size
+            if total > max_bytes:
+                raise RuntimeError("run artifacts exceed export byte limit")
+            files.append((path, relative))
+            if len(files) > MAX_ARTIFACT_FILES:
+                raise RuntimeError("run artifacts exceed export file limit")
+    rows = [
+        {
+            "path": relative,
+            "size": path.stat().st_size,
+        }
+        for path, relative in sorted(files, key=lambda item: item[1])
+    ]
+    value = {
+        "schema": ARTIFACT_MANIFEST_SCHEMA,
+        "authority": "node-run",
+        "terminal_at": run_state.get("terminal_at"),
+        "run_id": run_state["run_id"],
+        "task_id": run_state["task_id"],
+        "task_sha256": run_state["task_sha256"],
+        "candidate_sha256": run_state["candidate_sha256"],
+        "terminal_state": run_state["state"],
+        "run_dir": str(run_dir),
+        "total_bytes": total,
+        "files": rows,
+        "artifact_set_sha256": _artifact_set_sha256(files),
+    }
+    return value, files
+
+
+def write_artifact_export(
+    *, run_state: dict[str, Any], stream: BinaryIO, max_bytes: int
+) -> dict[str, Any]:
+    manifest, files = build_artifact_manifest(
+        run_state=run_state, max_bytes=max_bytes
+    )
+    encoded = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode()
+    with tarfile.open(fileobj=stream, mode="w|") as archive:
+        info = tarfile.TarInfo("artifact-manifest.json")
+        info.size = len(encoded)
+        info.mode = 0o600
+        info.mtime = 0
+        archive.addfile(info, io.BytesIO(encoded))
+        for path, relative in files:
+            info = tarfile.TarInfo("artifacts/" + relative)
+            info.size = path.stat().st_size
+            info.mode = 0o600
+            info.mtime = 0
+            with path.open("rb") as source:
+                archive.addfile(info, source)
+    return manifest
+
+
+def receive_artifact_export(
+    *, stream: BinaryIO, workspace: Path, max_bytes: int
+) -> dict[str, Any]:
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+        raise RuntimeError("artifact receive byte limit must be positive")
+    root = workspace.expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if any(root.iterdir()):
+        raise RuntimeError("artifact receive workspace must be empty")
+    seen: set[str] = set()
+    artifact_bytes = 0
+    member_count = 0
+    with tarfile.open(fileobj=stream, mode="r|*") as archive:
+        for member in archive:
+            member_count += 1
+            if member_count > MAX_ARTIFACT_FILES + 1:
+                raise RuntimeError("artifact archive exceeds member limit")
+            kind, relative = _safe_artifact_archive_path(member.name)
+            normalized = member.name
+            if normalized in seen:
+                raise RuntimeError(f"duplicate artifact archive path: {normalized}")
+            seen.add(normalized)
+            if not member.isfile():
+                raise RuntimeError(
+                    f"artifact archive contains non-file: {normalized}"
+                )
+            if kind == "manifest":
+                if member_count != 1:
+                    raise RuntimeError("artifact manifest must be the first member")
+                if member.size > MAX_ARTIFACT_MANIFEST_BYTES:
+                    raise RuntimeError("artifact manifest exceeds byte limit")
+                target = root / "artifact-manifest.json"
+            else:
+                assert relative is not None
+                artifact_bytes += member.size
+                if artifact_bytes > max_bytes:
+                    raise RuntimeError("artifact archive exceeds extracted byte limit")
+                target = root / "artifacts" / Path(*relative.parts)
+            source = archive.extractfile(member)
+            if source is None:
+                raise RuntimeError(f"cannot read artifact archive member: {normalized}")
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            with target.open("xb") as output:
+                shutil.copyfileobj(source, output)
+            target.chmod(0o600)
+    try:
+        manifest = json.loads(
+            (root / "artifact-manifest.json").read_text(encoding="utf-8")
+        )
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"invalid artifact manifest: {exc}") from exc
+    manifest = _validate_artifact_manifest(manifest, max_bytes=max_bytes)
+    expected = {row["path"]: row for row in manifest["files"]}
+    observed: dict[str, Path] = {}
+    artifacts = root / "artifacts"
+    if artifacts.exists():
+        for path in artifacts.rglob("*"):
+            if path.is_symlink():
+                raise RuntimeError(f"artifact mirror contains symlink: {path}")
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                raise RuntimeError(f"artifact mirror contains non-file: {path}")
+            relative = path.relative_to(artifacts).as_posix()
+            observed[relative] = path
+    if set(observed) != set(expected):
+        raise RuntimeError("artifact archive file set disagrees with manifest")
+    for relative, path in observed.items():
+        row = expected[relative]
+        if path.stat().st_size != row["size"]:
+            raise RuntimeError(f"artifact archive size drift: {relative}")
+    if artifact_bytes != manifest["total_bytes"]:
+        raise RuntimeError("artifact archive byte total disagrees with manifest")
+    artifact_files = [(path, relative) for relative, path in observed.items()]
+    if _artifact_set_sha256(artifact_files) != manifest["artifact_set_sha256"]:
+        raise RuntimeError("artifact archive content drift")
+    return manifest
+
+
+def install_artifact_mirror(
+    *,
+    stream: BinaryIO,
+    destination: Path,
+    catalog: FleetCatalog,
+    route: dict[str, Any],
+    max_bytes: int,
+) -> dict[str, Any]:
+    output = destination.expanduser().resolve()
+    if output.exists():
+        raise RuntimeError(f"refusing to overwrite artifact mirror: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.incoming-", dir=output.parent))
+    installed = False
+    try:
+        manifest = receive_artifact_export(
+            stream=stream, workspace=staging, max_bytes=max_bytes
+        )
+        locator = route["locator"]
+        identity_pairs = (
+            ("run_id", locator["run_id"]),
+            ("task_id", route["task_id"]),
+            ("task_sha256", route["task_sha256"]),
+            ("candidate_sha256", route["candidate_sha256"]),
+        )
+        for field, expected in identity_pairs:
+            if manifest.get(field) != expected:
+                raise RuntimeError(f"artifact manifest {field} disagrees with route")
+        catalog_raw = json.loads(catalog.source_path.read_text(encoding="utf-8"))
+        if digest_json(catalog_raw) != catalog.digest:
+            raise RuntimeError("fleet catalog changed during artifact fetch")
+        RunStore.atomic_json(staging / "catalog.json", catalog_raw, mode=0o600)
+        RunStore.atomic_json(staging / "route.json", route, mode=0o600)
+        value = {
+            "schema": ARTIFACT_MIRROR_SCHEMA,
+            "authority": "mirror-only",
+            "mirrored_at": utc_now(),
+            "route_receipt_sha256": route["route_receipt_sha256"],
+            "locator": {
+                "node_id": locator["node_id"],
+                "run_id": locator["run_id"],
+            },
+            "artifact_manifest": "artifact-manifest.json",
+            "artifact_root": "artifacts",
+            "validation": "passed",
+        }
+        mirror = value
+        RunStore.atomic_json(staging / "mirror.json", mirror, mode=0o600)
+        if output.exists():
+            raise RuntimeError(f"refusing to overwrite artifact mirror: {output}")
+        os.rename(staging, output)
+        installed = True
+        return mirror
+    finally:
+        if not installed and staging.exists():
+            shutil.rmtree(staging)
+
+
+def fetch_artifact_export(
+    *,
+    node: FleetNode,
+    catalog: FleetCatalog,
+    run_id: str,
+    archive_path: Path,
+    max_bytes: int,
+    timeout_s: float | None = None,
+) -> None:
+    command = shlex.join(
+        [
+            node.kernelctl,
+            "fleet-export",
+            "--socket",
+            node.socket,
+            "--max-bytes",
+            str(max_bytes),
+            run_id,
+        ]
+    )
+    limit = catalog.command_timeout_s if timeout_s is None else timeout_s
+    try:
+        with archive_path.open("xb") as output:
+            completed = subprocess.run(
+                [*_ssh_base(node, catalog), command],
+                stdout=output,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=limit,
+            )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(
+            f"artifact fetch failed for {node.node_id}: {exc}"
+        ) from exc
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", "replace")[-2000:].strip()
+        raise RuntimeError(
+            f"artifact export failed on {node.node_id} "
+            f"exit={completed.returncode}: {detail}"
+        )

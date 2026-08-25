@@ -15,7 +15,7 @@ The first release deliberately reuses existing owners:
 - Kernel Infra snapshots inputs, drives staged judges, persists receipts, and
   derives the per-workload frontier.
 
-See [DESIGN.md](DESIGN.md) for the frozen v0.5 contract and
+See [DESIGN.md](DESIGN.md) for the current v0.11 contract and
 [README.zh-CN.md](README.zh-CN.md) for the Chinese guide. The first real-node
 acceptance records are [the initial A800 pilot](docs/a800-pilot-2026-08-24.md)
 and the [GitHub-release A800 qualification](docs/github-release-a800-2026-08-24.md).
@@ -235,6 +235,10 @@ kernelctl fleet-wait \
 kernelctl fleet-frontier \
   --catalog examples/fleet/catalog.json \
   --route route.json
+kernelctl fleet-fetch \
+  --catalog examples/fleet/catalog.json \
+  --route route.json \
+  --out mirrors/run-001
 ```
 
 Nodes are probed in parallel. Eligibility combines checked static capabilities,
@@ -254,6 +258,14 @@ Once submitted, locator operations remain pinned to that node. There is no
 automatic retry/failover: `fleet-status`, `fleet-wait`, `fleet-cancel`, and
 `fleet-frontier` emit content-addressed remote-observation receipts, and SSH or
 daemon failure is `unknown` rather than a fabricated lifecycle state.
+
+After a run is terminal, `fleet-fetch` may create one verified local mirror of
+the complete node run directory. The node emits `kernelinfra.artifact-manifest.v1`;
+the receiver rejects unsafe/partial/drifted archives, checks the existing route
+identity plus one artifact-set transfer digest, and installs create-only. The
+mirror keeps the checked catalog and route alongside `artifacts/`, but is
+explicitly `authority=mirror-only`: status, frontier, routing, and cancellation
+continue to consult the owning node. SSH failure creates no mirror directory.
 
 ## Evaluator contract
 

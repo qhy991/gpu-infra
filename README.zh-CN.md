@@ -5,7 +5,7 @@ Kernel Infra 是编码 Agent、独立 kernel evaluator 与单机
 task 与候选目录后立即获得 run id；GPU 排队和执行在后台继续，因此 Agent 可以并行
 生成、审查和提交下一批候选。
 
-v0.5 不复制已有能力：
+Kernel Infra 不复制已有 evaluator 能力：
 
 - PTXBench/FIBServe 继续负责隔离编译、sanitize、evaluate 与 profile；
 - KDA 继续拥有 fast/full 独立 judge 和 workload-specific score；
@@ -164,6 +164,10 @@ kernelctl fleet-wait \
 kernelctl fleet-frontier \
   --catalog examples/fleet/catalog.json \
   --route route.json
+kernelctl fleet-fetch \
+  --catalog examples/fleet/catalog.json \
+  --route route.json \
+  --out mirrors/run-001
 ```
 
 节点并行 probe；checked capability、ready deployment affinity、free disk 与 broker
@@ -179,6 +183,13 @@ receipt 保存所有 ok/unknown observation、选择理由、remote bundle/run �
 run 接受后 locator 固定在原节点；不会自动 retry/failover。`fleet-status`、
 `fleet-wait`、`fleet-cancel` 与 `fleet-frontier` 都生成 content-addressed remote
 observation receipt；SSH/daemon 失败只表示 unknown，不会伪造生命周期状态。
+
+run 进入终态后，`fleet-fetch` 可以 create-only 地建立完整本地镜像。节点生成
+`kernelinfra.artifact-manifest.v1`；接收端拒绝 traversal、link、重复、截断、超限和
+内容漂移，并复用既有 route identity，只增加一个确有拒收动作的 artifact-set 传输
+摘要。镜像保存 checked catalog、route 与 `artifacts/`，但明确标记
+`authority=mirror-only`；status、frontier、routing 与 cancellation 仍只读取原节点。
+SSH 失败不会留下可误认成成功的镜像目录。
 
 每次候选请求前后，adapter 都会复核 broker peer、独占 job/GPU、launch spec、
 executable/environment digest、健康 worker、service root，以及干净源码 checkout

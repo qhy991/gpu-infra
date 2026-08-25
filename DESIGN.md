@@ -1,4 +1,4 @@
-# Kernel Infra v0.10 design contract
+# Kernel Infra v0.11 design contract
 
 ## Goal
 
@@ -24,6 +24,8 @@ kernel validity, and performance-frontier decisions separate.
 8. **Frontier**: a rebuildable per-workload projection over eligible results.
 9. **Route receipt**: one catalog digest, parallel node observations,
    eligibility/rank decision, content-addressed transport, and node/run locator.
+10. **Artifact mirror**: a verified, create-only local copy of one terminal
+    node run; it is never a lifecycle or frontier authority.
 
 No separate campaign state, agent memory, or experiment database is required.
 Agents can submit several runs, and a task digest groups the comparable
@@ -46,6 +48,8 @@ set.
 | Static node capability/transport paths | checked fleet catalog |
 | Routing observation and decision | client-side route receipt |
 | Remote queue/allocation/run/deployment/result | selected node daemon/broker |
+| Terminal artifact manifest | selected node run directory |
+| Downloaded artifact copy | local mirror, explicitly non-authoritative |
 
 Kernel Infra never edits evaluator code, selects a winner from agent prose, or
 uses a live aggregate score as the factual timing owner.
@@ -83,6 +87,12 @@ Agent fleet-submit
   -> transfer content-addressed safe bundle over SSH
   -> target daemon revalidates and submits through its local authority
   -> return route receipt + (node_id, run_id), never a global run copy
+
+Agent fleet-fetch
+  -> resolve the immutable route locator, never probe or reroute
+  -> require a terminal node-owned run and stream its bounded file inventory
+  -> verify route identity and one aggregate transfer digest
+  -> atomically install a create-only mirror labeled mirror-only
 ```
 
 Multiple runs advance concurrently. CPU compilation uses a separate bounded
@@ -160,6 +170,12 @@ submitting agent.
 25. Remote operation receipts bind catalog, locator, operation, response/error,
     timestamp, and canonical digest. Transport failure is `unknown`; it cannot
     change node-owned run state.
+26. Artifact export is legal only for a terminal run. Fetch stays pinned to the
+    route node, rejects unsafe/partial/oversize/drifted content, and creates no
+    successful output on failure.
+27. A local artifact mirror is never an authority for run state, routing,
+    cancellation, judge validity, or frontier. One aggregate transfer digest is
+    sufficient; per-file, manifest, and mirror digests are excluded.
 
 ## Failure semantics
 
@@ -196,10 +212,13 @@ submitting agent.
 - Locator/catalog/route digest drift or remote status/frontier identity drift:
   reject locally. SSH/daemon timeout after acceptance: write unknown observation
   when requested; never claim terminal or dispatch another run.
+- Artifact fetch from a nonterminal/unreachable node, unsafe or incomplete tar,
+  route/run identity drift, transfer-digest mismatch, or existing destination:
+  reject without installing a mirror or changing node state.
 
 ## Deliberate exclusions
 
-v0.10 adds a trusted cross-host routing/observation client over independently authoritative
+v0.11 adds a trusted cross-host routing/observation and terminal-artifact client over independently authoritative
 single-host services. It attests broker-issued launch and
 environment digests plus live broker/service/source custody. Files referenced by
 the admitted argv—dataset, model, image, config, and compatibility assets—remain
@@ -249,3 +268,7 @@ independently authoritative node daemons rather than a global scheduler.
 - Fleet status/wait observations match the locator run, cancel targets that
   exact node once, and frontier response matches the routed task digest; all
   observation receipts recompute to their canonical hashes.
+- A terminal KDA and service-backed run can be fetched from its exact B200
+  locator into a create-only mirror; every file matches the node manifest while
+  mirror metadata remains explicitly non-authoritative.
+- An unreachable A800 locator yields no local mirror and no fallback to B200.

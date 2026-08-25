@@ -1,3 +1,4 @@
+import argparse
 import io
 import json
 import subprocess
@@ -8,18 +9,24 @@ from pathlib import Path
 from unittest import mock
 
 from kernel_infra.contracts import ContractError, digest_json
+from kernel_infra.cli import _fleet_fetch
 from kernel_infra.fleet import (
     FleetCatalog,
     FleetNode,
+    build_artifact_manifest,
     create_fleet_bundle,
+    fetch_artifact_export,
+    install_artifact_mirror,
     load_fleet_catalog,
     load_route_receipt,
     parse_locator,
     probe_node,
     receive_fleet_bundle,
+    receive_artifact_export,
     remote_kernelctl_json,
     remote_observation_receipt,
     select_node,
+    write_artifact_export,
 )
 
 
@@ -322,6 +329,253 @@ class FleetBundleTests(unittest.TestCase):
                 create_fleet_bundle(
                     task_path=task_path, candidate=candidate, workspace=workspace
                 )
+
+
+class FleetArtifactMirrorTests(unittest.TestCase):
+    def state(self, run_dir: Path, *, state: str = "completed"):
+        return {
+            "run_id": "fleet-task-run-123",
+            "task_id": "fleet-task",
+            "task_sha256": "1" * 64,
+            "candidate_sha256": "2" * 64,
+            "state": state,
+            "terminal_at": "2026-08-25T00:00:01+00:00",
+            "run_dir": str(run_dir),
+        }
+
+    def catalog_and_route(self, root: Path):
+        catalog_path = root / "catalog-source.json"
+        catalog_path.write_text(
+            json.dumps(
+                {
+                    "schema": "kernelinfra.fleet.v1",
+                    "connect_timeout_s": 2,
+                    "command_timeout_s": 5,
+                    "nodes": [
+                        {
+                            "id": "b200",
+                            "ssh": "verda-b200x4",
+                            "kernelctl": "/srv/kernelctl",
+                            "socket": "/tmp/kernel.sock",
+                            "inbox": "/srv/inbox",
+                            "capabilities": ["b200", "cuda"],
+                        }
+                    ],
+                }
+            )
+        )
+        catalog = load_fleet_catalog(catalog_path)
+        content = {
+            "schema": "kernelinfra.route-receipt.v1",
+            "catalog_sha256": catalog.digest,
+            "status": "submitted",
+            "selected_node": "b200",
+            "bundle_id": "a" * 32,
+            "task_id": "fleet-task",
+            "task_sha256": "1" * 64,
+            "candidate_sha256": "2" * 64,
+            "locator": {"node_id": "b200", "run_id": "fleet-task-run-123"},
+            "remote": {
+                "bundle_id": "a" * 32,
+                "bundle_dir": "/srv/inbox/" + "a" * 32,
+                "run": {"run_id": "fleet-task-run-123"},
+            },
+        }
+        route = {**content, "route_receipt_sha256": digest_json(content)}
+        return catalog, route
+
+    @staticmethod
+    def archive(manifest, files):
+        buffer = io.BytesIO()
+        encoded = (json.dumps(manifest, indent=2) + "\n").encode()
+        with tarfile.open(fileobj=buffer, mode="w") as archive:
+            info = tarfile.TarInfo("artifact-manifest.json")
+            info.size = len(encoded)
+            archive.addfile(info, io.BytesIO(encoded))
+            for relative, data in files.items():
+                info = tarfile.TarInfo("artifacts/" + relative)
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+        buffer.seek(0)
+        return buffer
+
+    def test_terminal_export_and_mirror_are_exact_and_create_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_dir = root / "run"
+            (run_dir / "stages" / "judge").mkdir(parents=True)
+            (run_dir / "result.json").write_text('{"outcome":"completed"}\n')
+            (run_dir / "stages" / "judge" / "stdout.log").write_text("ok\n")
+            stream = io.BytesIO()
+            exported = write_artifact_export(
+                run_state=self.state(run_dir), stream=stream, max_bytes=1024 * 1024
+            )
+            self.assertIn("artifact_set_sha256", exported)
+            self.assertNotIn("manifest_sha256", exported)
+            self.assertNotIn("sha256", exported["files"][0])
+
+            catalog, route = self.catalog_and_route(root)
+            destination = root / "mirror"
+            stream.seek(0)
+            mirror = install_artifact_mirror(
+                stream=stream,
+                destination=destination,
+                catalog=catalog,
+                route=route,
+                max_bytes=1024 * 1024,
+            )
+            self.assertEqual(mirror["authority"], "mirror-only")
+            self.assertNotIn("mirror_sha256", mirror)
+            self.assertNotIn("artifact_set_sha256", mirror)
+            self.assertEqual(mirror["validation"], "passed")
+            self.assertEqual(
+                (destination / "artifacts" / "result.json").read_text(),
+                '{"outcome":"completed"}\n',
+            )
+            self.assertEqual(
+                json.loads((destination / "artifact-manifest.json").read_text()),
+                exported,
+            )
+            self.assertTrue((destination / "catalog.json").is_file())
+            self.assertTrue((destination / "route.json").is_file())
+            self.assertTrue((destination / "mirror.json").is_file())
+
+            second = io.BytesIO()
+            write_artifact_export(
+                run_state=self.state(run_dir), stream=second, max_bytes=1024 * 1024
+            )
+            second.seek(0)
+            with self.assertRaisesRegex(RuntimeError, "overwrite"):
+                install_artifact_mirror(
+                    stream=second,
+                    destination=destination,
+                    catalog=catalog,
+                    route=route,
+                    max_bytes=1024 * 1024,
+                )
+
+    def test_export_rejects_nonterminal_and_symlink_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_dir = root / "run"
+            run_dir.mkdir()
+            (run_dir / "result.json").write_text("result")
+            with self.assertRaisesRegex(RuntimeError, "terminal"):
+                build_artifact_manifest(
+                    run_state=self.state(run_dir, state="running"), max_bytes=1024
+                )
+            outside = root / "outside"
+            outside.mkdir()
+            (run_dir / "linked").symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(RuntimeError, "symlink"):
+                build_artifact_manifest(
+                    run_state=self.state(run_dir), max_bytes=1024
+                )
+
+    def test_receive_rejects_traversal_symlink_and_duplicate_members(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases = []
+            for name in ("traversal", "symlink", "duplicate"):
+                buffer = io.BytesIO()
+                with tarfile.open(fileobj=buffer, mode="w") as archive:
+                    manifest = tarfile.TarInfo("artifact-manifest.json")
+                    manifest.size = 2
+                    archive.addfile(manifest, io.BytesIO(b"{}"))
+                    if name == "traversal":
+                        member = tarfile.TarInfo("artifacts/../escape")
+                        member.size = 0
+                        archive.addfile(member, io.BytesIO())
+                    elif name == "symlink":
+                        member = tarfile.TarInfo("artifacts/link")
+                        member.type = tarfile.SYMTYPE
+                        member.linkname = "/etc/passwd"
+                        archive.addfile(member)
+                    else:
+                        for _ in range(2):
+                            member = tarfile.TarInfo("artifacts/same")
+                            member.size = 0
+                            archive.addfile(member, io.BytesIO())
+                buffer.seek(0)
+                cases.append((name, buffer))
+            for name, buffer in cases:
+                with self.subTest(name=name):
+                    workspace = root / name
+                    with self.assertRaisesRegex(
+                        RuntimeError, "unsafe|non-file|duplicate"
+                    ):
+                        receive_artifact_export(
+                            stream=buffer, workspace=workspace, max_bytes=1024
+                        )
+            self.assertFalse((root / "escape").exists())
+
+    def test_receive_rejects_content_drift_and_partial_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_dir = root / "run"
+            run_dir.mkdir()
+            payload = b"a" * 32_000
+            (run_dir / "result.bin").write_bytes(payload)
+            manifest, _files = build_artifact_manifest(
+                run_state=self.state(run_dir), max_bytes=64_000
+            )
+            drifted = self.archive(manifest, {"result.bin": b"b" * len(payload)})
+            with self.assertRaisesRegex(RuntimeError, "content drift"):
+                receive_artifact_export(
+                    stream=drifted, workspace=root / "drift", max_bytes=64_000
+                )
+
+            complete = io.BytesIO()
+            write_artifact_export(
+                run_state=self.state(run_dir), stream=complete, max_bytes=64_000
+            )
+            partial = io.BytesIO(complete.getvalue()[:20_000])
+            with self.assertRaises(tarfile.ReadError):
+                receive_artifact_export(
+                    stream=partial, workspace=root / "partial", max_bytes=64_000
+                )
+
+    def test_remote_fetch_failure_is_unknown_to_local_mirror(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog, _route = self.catalog_and_route(root)
+            completed = subprocess.CompletedProcess(
+                args=[], returncode=255, stdout=b"", stderr=b"ssh timeout"
+            )
+            archive = root / "partial.tar"
+            with mock.patch("kernel_infra.fleet.subprocess.run", return_value=completed):
+                with self.assertRaisesRegex(RuntimeError, "ssh timeout"):
+                    fetch_artifact_export(
+                        node=catalog.nodes[0],
+                        catalog=catalog,
+                        run_id="fleet-task-run-123",
+                        archive_path=archive,
+                        max_bytes=1024,
+                    )
+            self.assertTrue(archive.exists())
+            self.assertEqual(archive.stat().st_size, 0)
+
+    def test_fleet_fetch_unknown_leaves_no_output_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog, route = self.catalog_and_route(root)
+            route_path = root / "route.json"
+            route_path.write_text(json.dumps(route))
+            output = root / "mirror"
+            args = argparse.Namespace(
+                catalog=catalog.source_path,
+                route=route_path,
+                out=output,
+                max_bytes=1024,
+                timeout=1,
+                json=False,
+            )
+            with mock.patch(
+                "kernel_infra.cli.fetch_artifact_export",
+                side_effect=RuntimeError("ssh timeout"),
+            ), mock.patch("sys.stderr", new=io.StringIO()):
+                self.assertEqual(_fleet_fetch(args), 1)
+            self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

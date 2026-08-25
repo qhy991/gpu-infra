@@ -4,6 +4,7 @@ from collections import namedtuple
 from pathlib import Path
 from unittest import mock
 
+from kernel_infra import __version__
 from kernel_infra.server import KernelInfraServer
 
 
@@ -79,7 +80,7 @@ class NodeStatusTests(unittest.IsolatedAsyncioTestCase):
             ):
                 status = await server._node_status()
         self.assertEqual(status["schema"], "kernelinfra.node-status.v1")
-        self.assertEqual(status["kernelinfra_version"], "0.10.0")
+        self.assertEqual(status["kernelinfra_version"], __version__)
         self.assertEqual(status["disk"]["free_bytes"], 900)
         self.assertEqual([item["run_id"] for item in status["active_runs"]], ["active-run"])
         self.assertEqual(status["ready_deployments"], ["service-ready"])

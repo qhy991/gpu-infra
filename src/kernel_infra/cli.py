@@ -16,9 +16,12 @@ from typing import Any
 from .contracts import ContractError, digest_json, load_task
 from .fleet import (
     FleetSelectionError,
+    MAX_ARTIFACT_BYTES,
     RECEIVE_SCHEMA,
     ROUTE_SCHEMA,
     create_fleet_bundle,
+    fetch_artifact_export,
+    install_artifact_mirror,
     load_fleet_catalog,
     parse_locator,
     probe_fleet,
@@ -29,6 +32,7 @@ from .fleet import (
     select_node,
     submit_bundle_to_node,
     route_locator_from_receipt,
+    write_artifact_export,
 )
 from .runner import RunManager
 from .server import KernelInfraServer
@@ -105,6 +109,25 @@ def _parser() -> argparse.ArgumentParser:
     fleet_receive.add_argument("--inbox", type=Path, required=True)
     fleet_receive.add_argument("--bundle-id", required=True)
     fleet_receive.add_argument("--label", required=True)
+
+    fleet_export = sub.add_parser("fleet-export", help=argparse.SUPPRESS)
+    _client_socket(fleet_export)
+    fleet_export.add_argument(
+        "--max-bytes", type=_positive_int, default=MAX_ARTIFACT_BYTES
+    )
+    fleet_export.add_argument("run_id")
+
+    fleet_fetch = sub.add_parser(
+        "fleet-fetch", help="mirror one terminal routed run from its owning node"
+    )
+    fleet_fetch.add_argument("--catalog", type=Path, required=True)
+    fleet_fetch.add_argument("--route", type=Path, required=True)
+    fleet_fetch.add_argument("--out", type=Path, required=True)
+    fleet_fetch.add_argument(
+        "--max-bytes", type=_positive_int, default=MAX_ARTIFACT_BYTES
+    )
+    fleet_fetch.add_argument("--timeout", type=_nonnegative_float)
+    fleet_fetch.add_argument("--json", action="store_true")
 
     for name, help_text in (
         ("fleet-status", "query one routed run on its owning node"),
@@ -241,6 +264,10 @@ def main(argv: list[str] | None = None) -> int:
         return _fleet_submit(args)
     if args.command == "fleet-receive":
         return _fleet_receive(args)
+    if args.command == "fleet-export":
+        return _fleet_export(args)
+    if args.command == "fleet-fetch":
+        return _fleet_fetch(args)
     if args.command in {"fleet-status", "fleet-wait", "fleet-cancel"}:
         return _fleet_remote_run(args)
     if args.command == "fleet-frontier":
@@ -575,6 +602,67 @@ def _fleet_receive(args: argparse.Namespace) -> int:
         "run": response["run"],
     }
     print(json.dumps(value, ensure_ascii=False))
+    return 0
+
+
+def _fleet_export(args: argparse.Namespace) -> int:
+    response = _request(
+        args.socket, {"op": "status", "run_id": args.run_id, "task_id": None}
+    )
+    if response is None:
+        return 1
+    runs = response.get("runs")
+    if (
+        not isinstance(runs, list)
+        or len(runs) != 1
+        or not isinstance(runs[0], dict)
+        or runs[0].get("run_id") != args.run_id
+    ):
+        print("kernelctl: artifact export did not resolve one exact run", file=sys.stderr)
+        return 1
+    try:
+        write_artifact_export(
+            run_state=runs[0], stream=sys.stdout.buffer, max_bytes=args.max_bytes
+        )
+    except Exception as exc:
+        print(f"kernelctl: cannot export run artifacts: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _fleet_fetch(args: argparse.Namespace) -> int:
+    output = args.out.expanduser().resolve()
+    if output.exists():
+        print(f"kernelctl: refusing to overwrite artifact mirror: {output}", file=sys.stderr)
+        return 1
+    try:
+        catalog = load_fleet_catalog(args.catalog)
+        node, run_id, route = route_locator_from_receipt(args.route, catalog)
+        with tempfile.TemporaryDirectory(prefix="kernelinfra-artifact-fetch-") as directory:
+            archive_path = Path(directory) / "artifacts.tar"
+            fetch_artifact_export(
+                node=node,
+                catalog=catalog,
+                run_id=run_id,
+                archive_path=archive_path,
+                max_bytes=args.max_bytes,
+                timeout_s=args.timeout,
+            )
+            with archive_path.open("rb") as stream:
+                mirror = install_artifact_mirror(
+                    stream=stream,
+                    destination=output,
+                    catalog=catalog,
+                    route=route,
+                    max_bytes=args.max_bytes,
+                )
+    except (ContractError, KeyError, OSError, RuntimeError, ValueError) as exc:
+        print(f"kernelctl: cannot fetch run artifacts: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(mirror, indent=2, ensure_ascii=False))
+    else:
+        print(str(output))
     return 0
 
 
