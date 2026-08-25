@@ -1,4 +1,4 @@
-# Kernel Infra v0.1 design contract
+# Kernel Infra v0.2 design contract
 
 ## Goal
 
@@ -22,7 +22,7 @@ kernel validity, and performance-frontier decisions separate.
 7. **Frontier**: a rebuildable per-workload projection over eligible results.
 
 No separate campaign state, agent memory, or experiment database is required
-for v0.1. Agents can submit several runs, and a task digest groups the comparable
+for v0.2. Agents can submit several runs, and a task digest groups the comparable
 set.
 
 ## Canonical owners
@@ -44,17 +44,19 @@ uses a live aggregate score as the factual timing owner.
 ```text
 Agent submit
   -> kernel-infrad snapshots task + candidate and returns run_id
-  -> one background gpu-run call per direct stage, or CPU request to a
-     broker-held evaluator service
+  -> bounded local CPU stages, one background gpu-run call per direct GPU stage,
+     or CPU request to a broker-held evaluator service
   -> agent-gpu-broker queues shared/exclusive capacity
   -> independent judge writes stage-result.v1
   -> kernel-infrad validates and aggregates run-result.v1
   -> frontier reducer compares valid, stable, same-task-digest runs
 ```
 
-Multiple runs advance concurrently. Correctness stages may overlap under the
-broker's bounded `shared` capacity; sanitizer, benchmark, and profiler stages
-request `exclusive` capacity and wait without occupying the submitting agent.
+Multiple runs advance concurrently. CPU compilation uses a separate bounded
+local capacity and therefore does not occupy a GPU slot. Correctness stages may
+overlap under the broker's bounded `shared` capacity; sanitizer, benchmark, and
+profiler stages request `exclusive` capacity and wait without occupying the
+submitting agent.
 
 ## Invariants
 
@@ -62,17 +64,19 @@ request `exclusive` capacity and wait without occupying the submitting agent.
 2. Every direct GPU stage goes through `gpu-run`; an external evaluator service
    must itself be a broker-held long-running job. The control plane never
    assigns a physical GPU.
-3. Later stages run only after the previous stage returns a valid `passed`
+3. A local stage is CPU-only, bounded by daemon capacity, and receives no broker
+   GPU assignment.
+4. Later stages run only after the previous stage returns a valid `passed`
    result.
-4. A process exit of zero without a valid judge result is an infrastructure
+5. A process exit of zero without a valid judge result is an infrastructure
    error.
-5. Cancellation interrupts `gpu-run`, which asks the broker to cancel and
+6. Cancellation interrupts `gpu-run`, which asks the broker to cancel and
    release its allocation.
-6. Daemon restart marks unfinished runs `interrupted`; it does not invent
+7. Daemon restart marks unfinished runs `interrupted`; it does not invent
    recovery or resubmit work.
-7. Only `completed + valid + complete workload timing` results enter the
+8. Only `completed + valid + complete workload timing` results enter the
    frontier reducer.
-8. Frontier comparison never crosses task digests.
+9. Frontier comparison never crosses task digests.
 
 ## Failure semantics
 
@@ -88,7 +92,7 @@ request `exclusive` capacity and wait without occupying the submitting agent.
 
 ## Deliberate exclusions
 
-v0.1 is a trusted single-host service. It records but does not automatically
+v0.2 is a trusted single-host service. It records but does not automatically
 attest that a `service` stage's evaluator deployment is broker-held. It does not
 provide hostile tenant isolation, a cross-host global scheduler,
 priority/preemption, GPU memory quotas, automatic agent spawning, evaluator

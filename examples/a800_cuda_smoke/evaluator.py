@@ -42,12 +42,14 @@ def _required_path(name: str) -> Path:
 
 
 def _docker_base(
-    *, image_id: str, candidate_dir: Path, judge_dir: Path, artifact_dir: Path
+    *,
+    image_id: str,
+    candidate_dir: Path,
+    judge_dir: Path,
+    artifact_dir: Path,
+    needs_gpu: bool,
 ) -> list[str]:
-    physical_gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
-    if not physical_gpus:
-        raise RuntimeError("broker did not assign CUDA_VISIBLE_DEVICES")
-    return [
+    command = [
         "docker",
         "run",
         "--rm",
@@ -59,18 +61,26 @@ def _docker_base(
         "no-new-privileges",
         "--pids-limit",
         "256",
-        "--gpus",
-        f"device={physical_gpus}",
-        "--user",
-        f"{os.getuid()}:{os.getgid()}",
-        "--volume",
-        f"{candidate_dir}:/candidate:ro",
-        "--volume",
-        f"{judge_dir}:/judge:ro",
-        "--volume",
-        f"{artifact_dir}:/artifacts:rw",
-        image_id,
     ]
+    if needs_gpu:
+        physical_gpus = os.environ.get("CUDA_VISIBLE_DEVICES", "").strip()
+        if not physical_gpus:
+            raise RuntimeError("broker did not assign CUDA_VISIBLE_DEVICES")
+        command.extend(["--gpus", f"device={physical_gpus}"])
+    command.extend(
+        [
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
+            "--volume",
+            f"{candidate_dir}:/candidate:ro",
+            "--volume",
+            f"{judge_dir}:/judge:ro",
+            "--volume",
+            f"{artifact_dir}:/artifacts:rw",
+            image_id,
+        ]
+    )
+    return command
 
 
 def _run(command: list[str], *, timeout: float = 180.0) -> subprocess.CompletedProcess[str]:
@@ -218,6 +228,11 @@ def main(argv: list[str] | None = None) -> int:
     binary = artifact_dir / "runner"
     sass = artifact_dir / "runner.sass"
     ptx = artifact_dir / "runner.ptx"
+    compiler_artifacts = {
+        "binary": f"artifacts/{ARTIFACT_DIR_NAME}/runner",
+        "sass": f"artifacts/{ARTIFACT_DIR_NAME}/runner.sass",
+        "ptx": f"artifacts/{ARTIFACT_DIR_NAME}/runner.ptx",
+    }
 
     try:
         actual_image_id = _image_identity(args.image)
@@ -241,8 +256,9 @@ def main(argv: list[str] | None = None) -> int:
             candidate_dir=candidate_dir,
             judge_dir=judge_dir,
             artifact_dir=artifact_dir,
+            needs_gpu=stage_kind != "compile",
         )
-        if stage_kind == "correctness":
+        if stage_kind == "compile":
             compiled, compile_error = _compile(
                 base=base, arch=args.arch, artifact_dir=artifact_dir, stage_dir=stage_dir
             )
@@ -256,12 +272,33 @@ def main(argv: list[str] | None = None) -> int:
                         "compile_stderr": "compile.stderr.log",
                     },
                 )
-        elif stage_kind in {"sanitize", "benchmark"}:
+            result = {
+                "schema": STAGE_SCHEMA,
+                "status": "passed",
+                "validity": "unknown",
+                "summary": f"NVCC {args.arch} compile and compiler evidence passed",
+                "workloads": [],
+                "artifacts": {
+                    **compiler_artifacts,
+                    "compile_stdout": "compile.stdout.log",
+                    "compile_stderr": "compile.stderr.log",
+                },
+                "fingerprints": _fingerprints(
+                    candidate=candidate,
+                    binary=binary,
+                    sass=sass,
+                    ptx=ptx,
+                    image_id=args.image_id,
+                ),
+            }
+            _atomic_json(result_path, result)
+            return 0
+        elif stage_kind in {"correctness", "sanitize", "benchmark"}:
             if not all(path.is_file() for path in (binary, sass, ptx)):
                 return _write_failure(
                     result_path,
                     validity="unknown",
-                    summary="correctness-stage binary or compiler evidence is missing",
+                    summary="compile-stage binary or compiler evidence is missing",
                 )
         else:
             return _write_failure(
@@ -335,9 +372,7 @@ def main(argv: list[str] | None = None) -> int:
             image_id=args.image_id,
         )
         artifacts = {
-            "binary": f"artifacts/{ARTIFACT_DIR_NAME}/runner",
-            "sass": f"artifacts/{ARTIFACT_DIR_NAME}/runner.sass",
-            "ptx": f"artifacts/{ARTIFACT_DIR_NAME}/runner.ptx",
+            **compiler_artifacts,
             "harness_output": "harness-output.json",
         }
 
@@ -365,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
                         artifacts[f"{tool}_stderr"] = f"{tool}.stderr.log"
             else:
                 passed_summary = (
-                    f"NVCC {args.arch} exact correctness passed on {payload['device']}"
+                    f"exact CUDA correctness passed on {payload['device']}"
                 )
                 failed_summary = (
                     f"candidate failed exact correctness on {payload['device']}"

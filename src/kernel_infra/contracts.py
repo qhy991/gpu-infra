@@ -12,10 +12,10 @@ from typing import Any
 
 TASK_SCHEMA = "kernelinfra.task.v1"
 STAGE_KINDS = frozenset(
-    {"correctness", "sanitize", "benchmark", "profile", "judge"}
+    {"compile", "correctness", "sanitize", "benchmark", "profile", "judge"}
 )
 MODES = frozenset({"shared", "exclusive"})
-EXECUTIONS = frozenset({"broker", "service"})
+EXECUTIONS = frozenset({"broker", "local", "service"})
 _ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,95}$")
 
 
@@ -284,11 +284,10 @@ def _parse_stage(value: Any, *, index: int, task_dir: Path) -> StageSpec:
     ):
         raise ContractError(f"{where}.judge.command must be a non-empty string list")
 
-    if execution == "service":
+    if execution in {"local", "service"}:
         if "resources" in raw:
             raise ContractError(
-                f"{where}.resources must be omitted for a service request; "
-                "the service process owns its broker allocation"
+                f"{where}.resources must be omitted for {execution} execution"
             )
         return StageSpec(
             id=stage_id,

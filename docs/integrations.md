@@ -30,7 +30,7 @@ broker-managed allocation, then use a Kernel Infra stage with
 
 The service request is CPU-only. Its GPU work is legal only while the named
 FIBServe deployment is itself held by a broker job; that deployment receipt and
-image/commit identity remain part of the judge identity. v0.1 records this
+image/commit identity remain part of the judge identity. v0.2 records this
 identity but does not automatically attest the service deployment.
 
 ## KDA Internal

@@ -32,10 +32,16 @@ class CudaContainerEvaluatorTests(unittest.TestCase):
             "image:sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0",
             identity,
         )
-        self.assertEqual(task.stages[0].resources.mode, "shared")
         self.assertEqual(
-            [(stage.kind, stage.resources.mode) for stage in task.stages],
             [
+                (
+                    stage.kind,
+                    stage.resources.mode if stage.resources is not None else None,
+                )
+                for stage in task.stages
+            ],
+            [
+                ("compile", None),
                 ("correctness", "shared"),
                 ("sanitize", "exclusive"),
                 ("benchmark", "exclusive"),

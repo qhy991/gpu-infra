@@ -39,11 +39,13 @@ baseline kernel, launch-error checks, AB/BA order, and JSON result production.
 
 ## Ordered stages
 
-1. `correctness` (`shared`): compile once, run both exact workloads, and archive
-   binary, SASS, PTX, ptxas output, and hashes.
-2. `sanitize` (`exclusive`): reuse the exact binary and run compute-sanitizer
+1. `compile` (`local`): use bounded CPU capacity to compile once and archive
+   binary, SASS, PTX, ptxas output, and hashes without reserving a GPU.
+2. `correctness` (`shared`): reuse the exact binary and run both exact
+   workloads.
+3. `sanitize` (`exclusive`): reuse the exact binary and run compute-sanitizer
    memcheck followed by racecheck.
-3. `benchmark` (`exclusive`): reuse the same binary and compiler evidence for
+4. `benchmark` (`exclusive`): reuse the same binary and compiler evidence for
    balanced AB/BA timing.
 
 Any failed stage prevents later stages. A compile or candidate runtime failure
@@ -65,11 +67,12 @@ artifacts remains infrastructure-unknown.
 
 ## Container boundary
 
-The host wrapper invokes Docker only inside a broker allocation. The container
-has no network, drops Linux capabilities, enables `no-new-privileges`, mounts
-candidate and judge source read-only, and mounts only the per-run compiler
-artifact directory read-write. The broker-selected physical GPU is the only GPU
-exposed to the container.
+The CPU-only compile container runs under bounded local capacity and receives no
+GPU. Every container that executes CUDA runs inside a broker allocation. All
+containers have no network, drop Linux capabilities, enable
+`no-new-privileges`, mount candidate and judge source read-only, and mount only
+the per-run compiler artifact directory read-write. The broker-selected physical
+GPU is the only GPU exposed to GPU stages.
 
 The current image is a local image without a registry RepoDigest, so its image
 ID is node-specific custody rather than portable supply-chain provenance. A

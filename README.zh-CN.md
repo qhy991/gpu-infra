@@ -5,7 +5,7 @@ Kernel Infra 是编码 Agent、独立 kernel evaluator 与单机
 task 与候选目录后立即获得 run id；GPU 排队和执行在后台继续，因此 Agent 可以并行
 生成、审查和提交下一批候选。
 
-v0.1 不复制已有能力：
+v0.2 不复制已有能力：
 
 - PTXBench/FIBServe 继续负责隔离编译、sanitize、evaluate 与 profile；
 - KDA 继续拥有 fast/full 独立 judge 和 workload-specific score；
@@ -26,7 +26,9 @@ v0.1 不复制已有能力：
 
 ```bash
 ../agent-gpu-broker/bin/gpuq serve --gpus 1 --shared-capacity 2
-bin/kernelctl serve --gpu-run ../agent-gpu-broker/bin/gpu-run
+bin/kernelctl serve \
+  --gpu-run ../agent-gpu-broker/bin/gpu-run \
+  --local-capacity 2
 ```
 
 校验 task，并一次提交多个候选：
@@ -94,7 +96,7 @@ exclusive balanced AB/BA benchmark 的完整实现。
 
 ## 当前边界
 
-v0.1 面向同一 Unix 身份下相互信任的 Agent，并在每个 GPU 节点各运行一个 daemon；
+v0.2 面向同一 Unix 身份下相互信任的 Agent，并在每个 GPU 节点各运行一个 daemon；
 还不承担恶意多租户隔离、跨机全局调度、优先级/抢占、显存配额或 daemon 崩溃后的
 活任务恢复。先在 A800 上证明单节点合同，再决定是否增加跨机 dispatcher。
 

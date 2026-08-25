@@ -98,6 +98,29 @@ raise SystemExit(0 if result["status"] == "passed" else 1)
 '''
 
 
+LOCAL_JUDGE = r'''
+import json
+import os
+import time
+from pathlib import Path
+
+timeline = Path.cwd() / "local-timeline.jsonl"
+run_id = os.environ["KERNELINFRA_RUN_ID"]
+with timeline.open("a") as handle:
+    handle.write(json.dumps({"run_id": run_id, "event": "start", "at": time.time()}) + "\n")
+time.sleep(0.2)
+with timeline.open("a") as handle:
+    handle.write(json.dumps({"run_id": run_id, "event": "end", "at": time.time()}) + "\n")
+Path(os.environ["KERNELINFRA_RESULT"]).write_text(json.dumps({
+    "schema": "kernelinfra.stage-result.v1",
+    "status": "passed",
+    "validity": "valid",
+    "summary": "bounded local stage passed",
+    "workloads": [{"id": "w0", "correct": True}],
+}))
+'''
+
+
 class RunnerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -160,6 +183,58 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
         result = json.loads((run_dir / "result.json").read_text())
         self.assertEqual(result["validity"], "invalid")
         self.assertFalse(result["frontier_eligible"])
+
+    async def test_local_capacity_serializes_cpu_only_stages(self):
+        await self.manager.close()
+        (self.root / "local_judge.py").write_text(textwrap.dedent(LOCAL_JUDGE))
+        task_path = self.root / "local-task.json"
+        task_path.write_text(
+            json.dumps(
+                {
+                    "schema": "kernelinfra.task.v1",
+                    "task_id": "local-task",
+                    "workloads": ["w0"],
+                    "comparison": {
+                        "primary_workloads": ["w0"],
+                        "relative_noise_floor": 0.02,
+                    },
+                    "stages": [
+                        {
+                            "id": "compile",
+                            "kind": "judge",
+                            "execution": "local",
+                            "judge": {
+                                "identity": "local-judge@test",
+                                "cwd": str(self.root),
+                                "command": ["python3", "local_judge.py"],
+                            },
+                        }
+                    ],
+                }
+            )
+        )
+        self.manager = RunManager(
+            store=RunStore(self.root / "local-state"),
+            gpu_run=self.fake_gpu_run,
+            broker_socket=self.root / "broker.sock",
+            local_capacity=1,
+        )
+        first = self.manager.submit(
+            task_path=task_path, candidate=self.candidate("local-a"), label="a"
+        )
+        second = self.manager.submit(
+            task_path=task_path, candidate=self.candidate("local-b"), label="b"
+        )
+        await asyncio.gather(
+            self.manager.wait(first["run_id"], timeout=10),
+            self.manager.wait(second["run_id"], timeout=10),
+        )
+        events = [
+            json.loads(line)
+            for line in (self.root / "local-timeline.jsonl").read_text().splitlines()
+        ]
+        self.assertEqual([event["event"] for event in events], ["start", "end", "start", "end"])
+        self.assertGreaterEqual(events[2]["at"], events[1]["at"])
 
 
 if __name__ == "__main__":

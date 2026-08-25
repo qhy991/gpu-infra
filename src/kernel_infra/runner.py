@@ -26,7 +26,10 @@ class RunManager:
         store: RunStore,
         gpu_run: Path,
         broker_socket: Path,
+        local_capacity: int = 2,
     ) -> None:
+        if local_capacity < 1:
+            raise ValueError("local_capacity must be positive")
         self.store = store
         self.gpu_run = gpu_run.expanduser().resolve()
         self.broker_socket = broker_socket.expanduser().resolve()
@@ -34,6 +37,7 @@ class RunManager:
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._done: dict[str, asyncio.Event] = {}
         self._stop_reasons: dict[str, str] = {}
+        self._local_slots = asyncio.Semaphore(local_capacity)
 
     def recover_interrupted(self) -> int:
         return self.store.recover_interrupted()
@@ -222,6 +226,7 @@ class RunManager:
             stage_dir=stage_dir,
             result_path=result_path,
         )
+        local_slot = False
         if stage.execution == "broker":
             command = self._broker_command(
                 task=task,
@@ -231,21 +236,33 @@ class RunManager:
             )
             process_environment = None
         else:
+            self.store.update_state(
+                run_id,
+                f"{stage.execution}_waiting",
+                state="waiting_local",
+            )
+            await self._local_slots.acquire()
+            local_slot = True
             command = list(stage.command)
             process_environment = {**os.environ, **stage_environment}
             self.store.update_state(
                 run_id,
-                "service_request_started",
+                f"{stage.execution}_started",
                 state="running",
             )
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            cwd=str(stage.cwd),
-            env=process_environment,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                cwd=str(stage.cwd),
+                env=process_environment,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+            )
+        except BaseException:
+            if local_slot:
+                self._local_slots.release()
+            raise
         self._processes[run_id] = process
         assert process.stdout is not None and process.stderr is not None
         stdout_task = asyncio.create_task(
@@ -273,6 +290,8 @@ class RunManager:
         finally:
             if self._processes.get(run_id) is process and process.returncode is not None:
                 self._processes.pop(run_id, None)
+            if local_slot:
+                self._local_slots.release()
 
         error: str | None = None
         result: dict[str, Any] | None = None

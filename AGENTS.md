@@ -6,6 +6,8 @@
 - `agent-gpu-broker` remains the sole owner of per-host GPU allocation and queue
   policy. A broker stage runs through `gpu-run`; a CPU-only service request is
   legal only when the GPU service itself is held by a broker allocation.
+- A `local` stage must be provably CPU-only and uses the daemon's bounded local
+  capacity. It must never inherit or select a GPU outside the broker.
 - A task's named judge owns correctness and raw measurements. Kernel Infra may
   validate and reduce judge output, but must not silently reinterpret a failed
   or missing judge result as success.

@@ -21,6 +21,16 @@ DEFAULT_BROKER_SOCKET = Path("/tmp/agent-gpu-broker.sock")
 DEFAULT_STATE_DIR = Path.home() / ".local/share/kernel-infra"
 
 
+def _positive_int(value: str) -> int:
+    try:
+        result = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid integer: {value}") from exc
+    if result < 1:
+        raise argparse.ArgumentTypeError("value must be positive")
+    return result
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="kernelctl")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -30,6 +40,7 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR)
     serve.add_argument("--broker-socket", type=Path, default=DEFAULT_BROKER_SOCKET)
     serve.add_argument("--gpu-run", type=Path, default=Path("gpu-run"))
+    serve.add_argument("--local-capacity", type=_positive_int, default=2)
 
     check = sub.add_parser("task-check", help="validate one task contract")
     check.add_argument("task", type=Path)
@@ -109,6 +120,7 @@ async def _serve(args: argparse.Namespace) -> int:
         store=RunStore(args.state_dir),
         gpu_run=gpu_run,
         broker_socket=args.broker_socket,
+        local_capacity=args.local_capacity,
     )
     server = KernelInfraServer(manager, args.socket)
     try:

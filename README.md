@@ -15,7 +15,7 @@ The first release deliberately reuses existing owners:
 - Kernel Infra snapshots inputs, drives staged judges, persists receipts, and
   derives the per-workload frontier.
 
-See [DESIGN.md](DESIGN.md) for the frozen v0.1 contract and
+See [DESIGN.md](DESIGN.md) for the frozen v0.2 contract and
 [README.zh-CN.md](README.zh-CN.md) for the Chinese guide. The first real-node
 acceptance records are [the initial A800 pilot](docs/a800-pilot-2026-08-24.md)
 and the [GitHub-release A800 qualification](docs/github-release-a800-2026-08-24.md).
@@ -28,7 +28,9 @@ Start the existing broker first, then the control daemon:
 
 ```bash
 ../agent-gpu-broker/bin/gpuq serve --gpus 1 --shared-capacity 2
-bin/kernelctl serve --gpu-run ../agent-gpu-broker/bin/gpu-run
+bin/kernelctl serve \
+  --gpu-run ../agent-gpu-broker/bin/gpu-run \
+  --local-capacity 2
 ```
 
 Validate and submit a staged task:
