@@ -12,6 +12,7 @@ from unittest import mock
 
 from kernel_infra.contracts import ContractError, digest_json
 from kernel_infra.cli import (
+    _fleet_collect,
     _fleet_fetch,
     _fleet_remote_run,
     _fleet_snapshot,
@@ -671,6 +672,198 @@ class FleetSnapshotTests(unittest.TestCase):
             ) as build, mock.patch("sys.stderr", new=io.StringIO()):
                 self.assertEqual(_fleet_snapshot(args), 1)
             build.assert_not_called()
+
+
+class FleetCollectionTests(unittest.TestCase):
+    def setup_routes(self, root: Path, specs):
+        root.mkdir(parents=True, exist_ok=True)
+        helper = FleetSnapshotTests()
+        catalog = helper.catalog(root)
+        routes = []
+        states = {}
+        for index, (node_id, state) in enumerate(specs):
+            run_id = f"collect-run-{index}"
+            route = helper.route(
+                root,
+                catalog,
+                node_id=node_id,
+                run_id=run_id,
+                name=f"route-{index}.json",
+            )
+            routes.append(route)
+            states[run_id] = state
+
+        def query(*, arguments, **_kwargs):
+            run_id = arguments[-1]
+            state = states[run_id]
+            if state is None:
+                raise RuntimeError("ssh timeout")
+            route = routes[int(run_id.rsplit("-", 1)[1])]
+            return helper.response(route, state)
+
+        snapshot = fleet_snapshot(
+            catalog=catalog, route_paths=routes, query=query
+        )
+        return catalog, routes, snapshot
+
+    @staticmethod
+    def args(catalog, routes, output):
+        return argparse.Namespace(
+            catalog=catalog.source_path,
+            endpoints=None,
+            out=output,
+            max_bytes=1024 * 1024,
+            timeout=5,
+            json=True,
+            routes=routes,
+        )
+
+    @staticmethod
+    def successful_fetch(*, archive_path, **_kwargs):
+        archive_path.write_bytes(b"archive")
+
+    @staticmethod
+    def successful_install(*, destination, **_kwargs):
+        destination.mkdir()
+        (destination / "mirror.json").write_text("{}")
+        return {"validation": "passed"}
+
+    def test_collection_mirrors_terminal_and_preserves_running_and_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog, routes, snapshot = self.setup_routes(
+                root,
+                [("b200", "completed"), ("b200", "running"), ("a800", None)],
+            )
+            output = root / "collection"
+            args = self.args(catalog, routes, output)
+            with mock.patch(
+                "kernel_infra.cli.build_fleet_snapshot", return_value=snapshot
+            ), mock.patch(
+                "kernel_infra.cli.fetch_artifact_export",
+                side_effect=self.successful_fetch,
+            ) as fetch, mock.patch(
+                "kernel_infra.cli.install_artifact_mirror",
+                side_effect=self.successful_install,
+            ) as install, mock.patch("sys.stdout", new=io.StringIO()):
+                self.assertEqual(_fleet_collect(args), 1)
+            fetch.assert_called_once()
+            install.assert_called_once()
+            summary = json.loads((output / "summary.json").read_text())
+            self.assertEqual(
+                summary["counts"],
+                {"mirrored": 1, "nonterminal": 1, "unknown": 1},
+            )
+            self.assertFalse(summary["complete"])
+            mirrored = next(
+                item for item in summary["items"] if item["status"] == "mirrored"
+            )
+            self.assertTrue((output / mirrored["mirror"] / "mirror.json").is_file())
+            self.assertEqual(
+                sum(1 for path in (output / "mirrors").iterdir()), 1
+            )
+
+    def test_collection_fetches_terminal_routes_concurrently(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog, routes, snapshot = self.setup_routes(
+                root, [("b200", "completed")] * 3
+            )
+            output = root / "collection"
+            args = self.args(catalog, routes, output)
+            lock = threading.Lock()
+            active = 0
+            maximum = 0
+
+            def fetch(**kwargs):
+                nonlocal active, maximum
+                with lock:
+                    active += 1
+                    maximum = max(maximum, active)
+                time.sleep(0.05)
+                self.successful_fetch(**kwargs)
+                with lock:
+                    active -= 1
+
+            with mock.patch(
+                "kernel_infra.cli.build_fleet_snapshot", return_value=snapshot
+            ), mock.patch(
+                "kernel_infra.cli.fetch_artifact_export", side_effect=fetch
+            ), mock.patch(
+                "kernel_infra.cli.install_artifact_mirror",
+                side_effect=self.successful_install,
+            ), mock.patch("sys.stdout", new=io.StringIO()):
+                self.assertEqual(_fleet_collect(args), 0)
+            self.assertGreaterEqual(maximum, 2)
+            summary = json.loads((output / "summary.json").read_text())
+            self.assertEqual(summary["counts"], {"mirrored": 3})
+            self.assertTrue(summary["complete"])
+
+    def test_collection_keeps_partial_fetch_failure_and_nonterminal_exit_three(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog, routes, snapshot = self.setup_routes(
+                root, [("b200", "completed"), ("b200", "completed")]
+            )
+            output = root / "partial"
+            args = self.args(catalog, routes, output)
+
+            def fetch(*, run_id, **kwargs):
+                if run_id.endswith("1"):
+                    raise RuntimeError("fetch failed")
+                self.successful_fetch(**kwargs)
+
+            with mock.patch(
+                "kernel_infra.cli.build_fleet_snapshot", return_value=snapshot
+            ), mock.patch(
+                "kernel_infra.cli.fetch_artifact_export", side_effect=fetch
+            ), mock.patch(
+                "kernel_infra.cli.install_artifact_mirror",
+                side_effect=self.successful_install,
+            ), mock.patch("sys.stdout", new=io.StringIO()):
+                self.assertEqual(_fleet_collect(args), 1)
+            summary = json.loads((output / "summary.json").read_text())
+            self.assertEqual(
+                summary["counts"], {"fetch_failed": 1, "mirrored": 1}
+            )
+
+            next_output = root / "nonterminal"
+            _catalog, routes, running = self.setup_routes(
+                root / "next", [("b200", "running")]
+            )
+            args = self.args(_catalog, routes, next_output)
+            with mock.patch(
+                "kernel_infra.cli.build_fleet_snapshot", return_value=running
+            ), mock.patch(
+                "kernel_infra.cli.fetch_artifact_export"
+            ) as no_fetch, mock.patch("sys.stdout", new=io.StringIO()):
+                self.assertEqual(_fleet_collect(args), 3)
+            no_fetch.assert_not_called()
+
+    def test_collection_rejects_route_drift_and_existing_output_before_fetch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog, routes, snapshot = self.setup_routes(
+                root, [("b200", "completed")]
+            )
+            snapshot["observations"][0]["route_receipt_sha256"] = "drift"
+            output = root / "collection"
+            args = self.args(catalog, routes, output)
+            with mock.patch(
+                "kernel_infra.cli.build_fleet_snapshot", return_value=snapshot
+            ), mock.patch(
+                "kernel_infra.cli.fetch_artifact_export"
+            ) as fetch, mock.patch("sys.stderr", new=io.StringIO()):
+                self.assertEqual(_fleet_collect(args), 1)
+            fetch.assert_not_called()
+            self.assertFalse(output.exists())
+
+            output.mkdir()
+            with mock.patch(
+                "kernel_infra.cli.build_fleet_snapshot"
+            ) as snapshot_call, mock.patch("sys.stderr", new=io.StringIO()):
+                self.assertEqual(_fleet_collect(args), 1)
+            snapshot_call.assert_not_called()
 
 
 class FleetBundleTests(unittest.TestCase):

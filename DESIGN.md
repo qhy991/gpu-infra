@@ -1,4 +1,4 @@
-# Kernel Infra v0.14 design contract
+# Kernel Infra v0.15 design contract
 
 ## Goal
 
@@ -32,6 +32,8 @@ kernel validity, and performance-frontier decisions separate.
     an unchanged historical node id; it owns no route or run fact.
 13. **Fleet batch request**: one bounded prevalidated submission action whose
     outputs are ordinary independent route receipts plus a derived summary.
+14. **Fleet collection**: one create-only snapshot plus bounded terminal
+    artifact mirrors over ordinary route receipts; it owns no run fact.
 
 No separate campaign state, agent memory, or experiment database is required.
 Agents can submit several runs, and a task digest groups the comparable
@@ -60,6 +62,8 @@ set.
 | Current post-acceptance transport endpoint | checked fleet endpoint map |
 | Batch item lifecycle and result | each ordinary route receipt and node run |
 | Batch index/counts | derived local `summary.json` |
+| Collection item state | route snapshot and node-owned run |
+| Collected bytes | per-run mirror, explicitly non-authoritative |
 
 Kernel Infra never edits evaluator code, selects a winner from agent prose, or
 uses a live aggregate score as the factual timing owner.
@@ -124,6 +128,13 @@ Agent fleet-submit-many
   -> submit through bounded concurrent transports to selected node daemons
   -> persist one ordinary route receipt per item as soon as it returns
   -> derive a local summary; never roll back independent accepted runs
+
+Agent fleet-collect
+  -> validate ordinary route receipts and take one concurrent snapshot
+  -> copy checked catalog/routes into one create-only collection
+  -> preserve running and unknown items without waiting or intervention
+  -> concurrently fetch artifacts only for currently terminal runs
+  -> retain independent mirror/failure outcomes in a derived summary
 ```
 
 Multiple runs advance concurrently. CPU compilation uses a separate bounded
@@ -230,6 +241,15 @@ submitting agent.
 35. Every item produces an ordinary route receipt. `summary.json` is a derived
     immutable index with no digest or lifecycle state. Remote partial success is
     retained; sibling failure never triggers retry, rollback, or cancellation.
+36. Fleet collection accepts at most 64 unique submitted routes, snapshots them
+    once, revalidates route and endpoint identity before output, and uses at
+    most eight concurrent terminal artifact fetches.
+37. Nonterminal routes are never waited; unknown routes are never retried;
+    collection never cancels, reroutes, or interprets judge validity. Terminal
+    rejected/error/cancelled evidence is collected like completed evidence.
+38. Every successful item is an ordinary mirror-only v2 directory. Collection
+    summary/counts are derived and add no digest or lifecycle authority. One
+    fetch failure cannot remove another successfully installed mirror.
 
 ## Failure semantics
 
@@ -281,10 +301,15 @@ submitting agent.
   route receipts without transport. Per-item transport or receipt-write failure:
   retain every independent outcome and return a failed batch summary without
   cancelling accepted runs.
+- Invalid/duplicate/drifted collection route or endpoint: reject before output.
+  Nonterminal route: record it and exit 3 without fetch. Unknown observation or
+  per-run fetch failure: retain every item and successful mirror, write summary,
+  and exit 1 without retry, failover, wait, or cancellation.
 
 ## Deliberate exclusions
 
-v0.14 adds bounded parallel submission, trusted cross-host routing,
+v0.15 adds bounded terminal evidence collection, parallel submission,
+trusted cross-host routing,
 endpoint-stable post-acceptance
 operations, multi-route observation, and
 terminal-artifact clients over independently authoritative
@@ -350,3 +375,6 @@ independently authoritative node daemons rather than a global scheduler.
 - A three-candidate batch performs one A800/B200 probe, preserves A800 unknown,
   concurrently submits three unique B200 routes, and observes all independent
   terminal results without allocating a GPU for the client control path.
+- One mixed collection mirrors completed evidence while leaving a running route
+  nonterminal with exit 3; a later create-only collection after terminal
+  transition mirrors all routes, with no GPU allocation for collection itself.

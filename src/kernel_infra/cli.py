@@ -18,9 +18,11 @@ from .contracts import ContractError, digest_json, load_task
 from .fleet import (
     FLEET_ENDPOINTS_SCHEMA,
     FLEET_BATCH_SUMMARY_SCHEMA,
+    FLEET_COLLECTION_SCHEMA,
     FleetSelectionError,
     MAX_ARTIFACT_BYTES,
     MAX_FLEET_BATCH_CANDIDATES,
+    MAX_FLEET_COLLECTION_ROUTES,
     RECEIVE_SCHEMA,
     ROUTE_SCHEMA,
     create_fleet_bundle,
@@ -180,6 +182,19 @@ def _parser() -> argparse.ArgumentParser:
     fleet_snapshot.add_argument("--json", action="store_true")
     fleet_snapshot.add_argument("routes", nargs="+", type=Path)
 
+    fleet_collect = sub.add_parser(
+        "fleet-collect", help="mirror artifacts for currently terminal routes"
+    )
+    fleet_collect.add_argument("--catalog", type=Path, required=True)
+    fleet_collect.add_argument("--endpoints", type=Path)
+    fleet_collect.add_argument("--out", type=Path, required=True)
+    fleet_collect.add_argument(
+        "--max-bytes", type=_positive_int, default=MAX_ARTIFACT_BYTES
+    )
+    fleet_collect.add_argument("--timeout", type=_nonnegative_float)
+    fleet_collect.add_argument("--json", action="store_true")
+    fleet_collect.add_argument("routes", nargs="+", type=Path)
+
     for name, help_text in (
         ("fleet-status", "query one routed run on its owning node"),
         ("fleet-wait", "wait for one routed run on its owning node"),
@@ -329,6 +344,8 @@ def main(argv: list[str] | None = None) -> int:
         return _fleet_fetch(args)
     if args.command == "fleet-snapshot":
         return _fleet_snapshot(args)
+    if args.command == "fleet-collect":
+        return _fleet_collect(args)
     if args.command in {"fleet-status", "fleet-wait", "fleet-cancel"}:
         return _fleet_remote_run(args)
     if args.command == "fleet-frontier":
@@ -1076,6 +1093,166 @@ def _fleet_snapshot(args: argparse.Namespace) -> int:
         if output is not None:
             print(f"path={output}")
     return 0 if snapshot["summary"]["ok"] else 1
+
+
+def _fleet_collect(args: argparse.Namespace) -> int:
+    output = args.out.expanduser().resolve()
+    if output.exists():
+        print(
+            f"kernelctl: refusing to overwrite fleet collection: {output}",
+            file=sys.stderr,
+        )
+        return 1
+    if len(args.routes) > MAX_FLEET_COLLECTION_ROUTES:
+        print(
+            f"kernelctl: fleet collection supports at most "
+            f"{MAX_FLEET_COLLECTION_ROUTES} routes",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        catalog = load_fleet_catalog(args.catalog)
+        endpoints = _load_fleet_endpoints_arg(args, catalog)
+        snapshot = build_fleet_snapshot(
+            catalog=catalog, route_paths=args.routes, endpoints=endpoints
+        )
+        catalog_raw = json.loads(catalog.source_path.read_text(encoding="utf-8"))
+        if digest_json(catalog_raw) != catalog.digest:
+            raise RuntimeError("fleet catalog changed during collection snapshot")
+        prepared = []
+        for index, observation in enumerate(snapshot["observations"]):
+            source = Path(observation["route"])
+            historical_node, run_id, route = route_locator_from_receipt(
+                source, catalog
+            )
+            if (
+                route["route_receipt_sha256"]
+                != observation["route_receipt_sha256"]
+            ):
+                raise RuntimeError(f"fleet collection route changed: {source}")
+            node, endpoint = resolve_fleet_endpoint(
+                catalog=catalog, node=historical_node, endpoints=endpoints
+            )
+            if endpoint != observation["endpoint"]:
+                raise RuntimeError(f"fleet collection endpoint changed: {source}")
+            prepared.append(
+                {
+                    "index": index,
+                    "source": source,
+                    "node": node,
+                    "run_id": run_id,
+                    "route": route,
+                    "endpoint": endpoint,
+                    "observation": observation,
+                }
+            )
+
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.mkdir(mode=0o700)
+        (output / "routes").mkdir(mode=0o700)
+        (output / "mirrors").mkdir(mode=0o700)
+        _atomic_new_json(output / "catalog.json", catalog_raw)
+        _atomic_new_json(output / "snapshot.json", snapshot)
+        for item in prepared:
+            _atomic_new_json(
+                output / f"routes/{item['index']:03d}.json", item["route"]
+            )
+        saved_catalog = load_fleet_catalog(output / "catalog.json")
+
+        def collect_item(item, archives):
+            observation = item["observation"]
+            state = (
+                observation["response"]["state"]
+                if observation["status"] == "ok"
+                else None
+            )
+            status = "unknown"
+            mirror_relative = None
+            error = observation["error"]
+            if observation["status"] == "ok" and state not in TERMINAL_STATES:
+                status = "nonterminal"
+                error = None
+            elif observation["status"] == "ok":
+                archive = archives / f"{item['index']:03d}.tar"
+                mirror_relative = f"mirrors/{item['index']:03d}"
+                try:
+                    fetch_artifact_export(
+                        node=item["node"],
+                        catalog=saved_catalog,
+                        run_id=item["run_id"],
+                        archive_path=archive,
+                        max_bytes=args.max_bytes,
+                        timeout_s=args.timeout,
+                    )
+                    with archive.open("rb") as stream:
+                        install_artifact_mirror(
+                            stream=stream,
+                            destination=output / mirror_relative,
+                            catalog=saved_catalog,
+                            route=item["route"],
+                            max_bytes=args.max_bytes,
+                            endpoint=item["endpoint"],
+                        )
+                    status = "mirrored"
+                    error = None
+                except Exception as exc:
+                    status = "fetch_failed"
+                    mirror_relative = None
+                    error = f"{type(exc).__name__}: {exc}"
+            return {
+                "index": item["index"],
+                "source_route": str(item["source"]),
+                "route": f"routes/{item['index']:03d}.json",
+                "locator": observation["locator"],
+                "observed_status": observation["status"],
+                "observed_state": state,
+                "status": status,
+                "mirror": mirror_relative,
+                "error": error,
+            }
+
+        with tempfile.TemporaryDirectory(prefix="kernelinfra-fleet-collect-") as temp:
+            archives = Path(temp)
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=min(8, len(prepared))
+            ) as executor:
+                futures = [
+                    executor.submit(collect_item, item, archives)
+                    for item in prepared
+                ]
+                items = [future.result() for future in futures]
+        items.sort(key=lambda item: item["index"])
+        counts: dict[str, int] = {}
+        for item in items:
+            counts[item["status"]] = counts.get(item["status"], 0) + 1
+        summary = {
+            "schema": FLEET_COLLECTION_SCHEMA,
+            "created_at": utc_now(),
+            "catalog": "catalog.json",
+            "snapshot": "snapshot.json",
+            "items": items,
+            "counts": dict(sorted(counts.items())),
+            "complete": set(counts) == {"mirrored"},
+        }
+        _atomic_new_json(output / "summary.json", summary)
+    except (ContractError, KeyError, OSError, RuntimeError, ValueError) as exc:
+        print(f"kernelctl: cannot collect fleet artifacts: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+    else:
+        for item in summary["items"]:
+            locator = item["locator"]
+            print(
+                f"{item['index']:03d} {locator['node_id']}:{locator['run_id']} "
+                f"status={item['status']} mirror={item['mirror'] or '-'}"
+            )
+        print(f"path={output}")
+    if counts.get("unknown") or counts.get("fetch_failed"):
+        return 1
+    if counts.get("nonterminal"):
+        return 3
+    return 0
 
 
 def _load_fleet_endpoints_arg(args: argparse.Namespace, catalog):

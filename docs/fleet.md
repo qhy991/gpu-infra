@@ -269,3 +269,44 @@ SSH/daemon error, malformed archive, identity mismatch, or existing output path
 fails without creating a successful mirror directory.
 `kernelinfra.artifact-mirror.v2` points to `endpoint.json`; changing software
 reachability does not rewrite the historical catalog or route stored beside it.
+
+## Terminal collection over many routes
+
+An agent can collect every artifact set currently ready across ordinary route
+receipts without blocking on the rest:
+
+```bash
+kernelctl fleet-collect \
+  --catalog exploration-routes/catalog.json \
+  --out collection-001 \
+  exploration-routes/routes/*.json
+```
+
+The client accepts 1–64 unique submitted routes and optional current endpoints.
+It first performs the same concurrent, identity-checked snapshot as
+`fleet-snapshot`, then revalidates every route/endpoint before creating output.
+Only states in the node-owned terminal set are fetched, through at most eight
+concurrent artifact transports. Completed, rejected, infra-error, cancelled,
+and interrupted runs are all evidence and are collected without reinterpreting
+their validity.
+
+The create-only directory is self-contained:
+
+```text
+catalog.json
+routes/000.json
+routes/001.json
+snapshot.json
+mirrors/000/             ordinary artifact-mirror.v2 when terminal
+mirrors/001/
+summary.json             kernelinfra.fleet-collection.v1
+```
+
+Summary item status is one of `mirrored`, `nonterminal`, `unknown`, or
+`fetch_failed`. Exit 0 means every route was terminal and mirrored. Exit 3 means
+at least one route remains nonterminal but there was no unknown/fetch failure.
+Exit 1 means at least one unknown or fetch failure; independently installed
+mirrors remain valid and are never removed. The command does not wait, poll,
+cancel, retry, fail over, route, submit, or update a remote run. A later pass
+uses a new output directory and a fresh snapshot. Collection summary has no
+digest and never replaces per-run mirror or node lifecycle authority.

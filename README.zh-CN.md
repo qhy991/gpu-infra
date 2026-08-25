@@ -187,6 +187,10 @@ kernelctl fleet-snapshot \
   --catalog examples/fleet/catalog.json \
   --out fleet-snapshot.json \
   routes/*.json
+kernelctl fleet-collect \
+  --catalog exploration-routes/catalog.json \
+  --out collection-001 \
+  exploration-routes/routes/*.json
 ```
 
 节点并行 probe；checked capability、ready deployment affinity、free disk 与 broker
@@ -221,6 +225,12 @@ Agent 并行探索多个候选时，可用 `fleet-snapshot` 先完整校验并�
 查询固定 node/run locator。create-only 输出只是一份包含逐 route `ok/unknown` 与状态
 计数的派生当前视图；它不创建 campaign database 或全局队列，不 retry/failover，也不
 增加新摘要，run lifecycle 仍由各节点拥有。
+
+`fleet-collect` 在不增加 watcher/campaign database 的前提下闭合证据回收：先对最多
+64 条普通 route 做一次 snapshot，只为当前终态 run 执行最多 8 路并发 fetch。
+create-only collection 保存 catalog/routes/snapshot、独立 v2 mirrors 与派生
+`summary.json`。running 保持 `nonterminal`（退出 3），unknown/fetch failure 原样保留
+（退出 1），全部镜像完成退出 0；绝不 wait/cancel/retry/failover 或重解释 judge validity。
 
 节点软件路径或 daemon socket 在 run 接受后变化时，保留历史 catalog 与 route receipt
 原文不变，另传 checked current endpoint map：

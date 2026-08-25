@@ -25,6 +25,10 @@ kernelctl fleet-snapshot \
   --catalog examples/fleet/catalog.json \
   --out fleet-snapshot.json \
   routes/*.json
+kernelctl fleet-collect \
+  --catalog exploration-routes/catalog.json \
+  --out collection-001 \
+  exploration-routes/routes/*.json
 kernelctl fleet-endpoints-check \
   --catalog examples/fleet/catalog.json \
   examples/fleet/endpoints.json
@@ -39,6 +43,10 @@ node-owned rather than copied into every candidate bundle.
 queue. All candidates are snapshotted before the single probe; deterministic
 projected-load assignments are transported concurrently, and independent
 partial outcomes are never rolled back or rerouted.
+
+`fleet-collect` takes one current snapshot and concurrently mirrors only
+terminal routes. It records running/unknown/fetch-failed items without waiting,
+cancelling, retrying, or changing the node-owned lifecycle.
 
 `fleet-snapshot` is the agent-facing parallel read path after submission. It
 prevalidates every route, queries each immutable locator once, and preserves

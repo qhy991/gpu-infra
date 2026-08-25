@@ -67,6 +67,10 @@
   every candidate before the single probe, reject duplicate content, plan from
   one observation, and never reroute, roll back, or cancel independently
   accepted runs because another batch item fails.
+- Fleet collection is a create-only derived pass over ordinary route receipts:
+  snapshot once, mirror only currently terminal runs, and retain nonterminal,
+  unknown, and fetch-failed items explicitly. It must never wait, cancel,
+  reroute, reinterpret validity, or become artifact/lifecycle authority.
 - New SHA-256 fields, fingerprints, and repeated whole-tree hashing are
   prohibited by default. Use SHA-256 only when it is required for a real
   integrity or content-addressing boundary, replaces a materially more

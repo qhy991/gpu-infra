@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.15.0 — 2026-08-25
+
+- Add `fleet-collect` for 1–64 ordinary routes: take one concurrent snapshot and
+  mirror currently terminal run artifacts through at most eight fetches.
+- Preserve nonterminal, unknown, and fetch-failed items without wait, cancel,
+  retry, failover, or validity reinterpretation. Exit 0 for complete mirrors, 3
+  for remaining nonterminal work, and 1 for unknown/fetch failure.
+- Create a self-contained, create-only collection with checked catalog, route
+  copies, snapshot, v2 mirrors, and a no-digest derived summary.
+- Reject route/catalog/endpoint drift before collection output creation and
+  preserve independently successful mirrors when a sibling fetch fails.
+
 ## 0.14.0 — 2026-08-25
 
 - Add `fleet-submit-many` for 1–64 prevalidated immutable candidates using one

@@ -258,6 +258,10 @@ kernelctl fleet-snapshot \
   --catalog examples/fleet/catalog.json \
   --out fleet-snapshot.json \
   routes/*.json
+kernelctl fleet-collect \
+  --catalog exploration-routes/catalog.json \
+  --out collection-001 \
+  exploration-routes/routes/*.json
 ```
 
 Nodes are probed in parallel. Eligibility combines checked static capabilities,
@@ -301,6 +305,14 @@ node/run pairs concurrently. Its create-only output is a derived current view
 with per-route `ok` or `unknown` responses and state counts. It creates no
 campaign database or global queue, performs no retry/failover, and adds no new
 digest; node run states remain authoritative.
+
+`fleet-collect` closes the evidence-return loop without adding a watcher or
+campaign database. It takes one snapshot of up to 64 ordinary routes and uses
+at most eight concurrent fetches only for currently terminal runs. The
+create-only collection copies catalog/routes/snapshot, installs independent v2
+mirrors, and derives `summary.json`. Running items remain `nonterminal` (exit
+3); unknown or fetch failure is retained (exit 1); all mirrored is exit 0. It
+never waits, cancels, retries, fails over, or reinterprets judge validity.
 
 When software paths or daemon sockets change after acceptance, keep the
 historical catalog and route receipt unchanged and provide a checked current
