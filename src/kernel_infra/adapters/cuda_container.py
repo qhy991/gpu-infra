@@ -11,6 +11,7 @@ import signal
 import subprocess
 import tempfile
 import time
+import re
 from pathlib import Path
 from typing import Any
 
@@ -20,19 +21,19 @@ _ACTIVE_CONTAINER: str | None = None
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--image", required=True)
-    parser.add_argument("--image-id", required=True)
+    parser.add_argument("--image-contract", type=Path, required=True)
     parser.add_argument("--arch", default="sm_80")
     parser.add_argument("--artifact-name", required=True)
     parser.add_argument("--judge-dir", type=Path, default=Path.cwd())
     return parser
 
 
-def bundle_sha256(root: Path) -> str:
+def bundle_sha256(root: Path, image_contract: Path) -> str:
     digest = hashlib.sha256()
     sources = (
         ("cuda_container.py", Path(__file__).resolve()),
         ("harness.cu", root / "harness.cu"),
+        ("image-contract.json", image_contract),
     )
     for name, path in sources:
         data = path.read_bytes()
@@ -199,8 +200,45 @@ def _image_identity(image: str) -> str:
     return completed.stdout.strip()
 
 
+def _load_image_contract(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    required = {
+        "schema",
+        "name",
+        "image_ref",
+        "platform",
+        "manifest_digest",
+        "config_digest",
+        "cuda_version",
+        "nvcc_build",
+        "required_tools",
+        "source",
+    }
+    if not isinstance(value, dict) or set(value) != required:
+        raise RuntimeError("invalid container image contract fields")
+    if value["schema"] != "kernelinfra.container-image.v1":
+        raise RuntimeError("unsupported container image contract schema")
+    for field in ("manifest_digest", "config_digest"):
+        if not isinstance(value[field], str) or not re.fullmatch(
+            r"sha256:[0-9a-f]{64}", value[field]
+        ):
+            raise RuntimeError(f"invalid {field} in container image contract")
+    if value["platform"] != "linux/amd64":
+        raise RuntimeError(f"unsupported container platform: {value['platform']}")
+    tools = value["required_tools"]
+    if not isinstance(tools, list) or tools != ["nvcc", "cuobjdump", "compute-sanitizer"]:
+        raise RuntimeError("container image contract does not provide required tools")
+    return value
+
+
 def _fingerprints(
-    *, candidate: Path, binary: Path, sass: Path, ptx: Path, image_id: str
+    *,
+    candidate: Path,
+    binary: Path,
+    sass: Path,
+    ptx: Path,
+    image_id: str,
+    image_manifest_digest: str,
 ) -> dict[str, str]:
     return {
         "source_sha256": _sha256(candidate),
@@ -208,6 +246,7 @@ def _fingerprints(
         "sass_sha256": _sha256(sass),
         "ptx_sha256": _sha256(ptx),
         "container_image_id": image_id,
+        "container_manifest_digest": image_manifest_digest,
     }
 
 
@@ -274,6 +313,11 @@ def _write_failure(
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    image_contract_path = args.image_contract.resolve()
+    image_contract = _load_image_contract(image_contract_path)
+    image_ref = str(image_contract["image_ref"])
+    image_id = str(image_contract["config_digest"])
+    image_manifest_digest = str(image_contract["manifest_digest"])
     result_path = _required_path("KERNELINFRA_RESULT")
     stage_dir = _required_path("KERNELINFRA_STAGE_DIR")
     run_dir = _required_path("KERNELINFRA_RUN_DIR")
@@ -297,15 +341,21 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     try:
-        actual_image_id = _image_identity(args.image)
-        if actual_image_id != args.image_id:
+        actual_image_id = _image_identity(image_ref)
+        if actual_image_id != image_id:
             raise RuntimeError(
-                f"container image drift: expected {args.image_id}, got {actual_image_id}"
+                f"container image drift: expected {image_id}, got {actual_image_id}"
             )
-        bundle = bundle_sha256(judge_dir)
+        bundle = bundle_sha256(judge_dir, image_contract_path)
         identity = _judge_identity(task_path, stage_id)
-        if bundle not in identity or args.image_id not in identity:
-            raise RuntimeError("task judge identity does not bind evaluator bundle and image")
+        if (
+            bundle not in identity
+            or image_id not in identity
+            or image_manifest_digest not in identity
+        ):
+            raise RuntimeError(
+                "task judge identity does not bind evaluator bundle, manifest, and image"
+            )
         if not candidate.is_file():
             return _write_failure(
                 result_path,
@@ -314,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         base = _docker_base(
-            image_id=args.image_id,
+            image_id=image_ref,
             candidate_dir=candidate_dir,
             judge_dir=judge_dir,
             artifact_dir=artifact_dir,
@@ -350,7 +400,8 @@ def main(argv: list[str] | None = None) -> int:
                     binary=binary,
                     sass=sass,
                     ptx=ptx,
-                    image_id=args.image_id,
+                    image_id=image_id,
+                    image_manifest_digest=image_manifest_digest,
                 ),
             }
             _atomic_json(result_path, result)
@@ -431,7 +482,8 @@ def main(argv: list[str] | None = None) -> int:
             binary=binary,
             sass=sass,
             ptx=ptx,
-            image_id=args.image_id,
+            image_id=image_id,
+            image_manifest_digest=image_manifest_digest,
         )
         artifacts = {
             **compiler_artifacts,

@@ -64,8 +64,9 @@ reconciliation，成功后才把未终态 run 归档为 `interrupted`；绝不�
 
 ## 真实 CUDA 容器任务
 
-`examples/a800_cuda_smoke/` 不再只是 PyTorch 调度 fixture。它按不可变 image ID
-绑定本地 CUDA 12.4 devel 镜像，用 NVCC 为 `sm_80` 编译候选，执行 exact
+`examples/a800_cuda_smoke/` 不再只是 PyTorch 调度 fixture。它按 platform
+manifest 与 config digest 绑定官方 CUDA 12.4 devel 镜像，用 NVCC 为 `sm_80`
+编译候选，执行 exact
 correctness、compute-sanitizer memcheck/racecheck 和 balanced AB/BA timing，并为
 source、binary、SASS、PTX 分别保存 SHA-256。
 
@@ -86,6 +87,8 @@ bin/kernelctl submit-many \
 ABI，并使用容差 oracle。它包含 1.0x shared-reduction 控制、warp-reduction 候选和
 错误控制，覆盖两个冻结 A800 workload。见
 [RMSNorm 任务说明](examples/a800_rmsnorm_smoke/README.md)。
+
+容器镜像 identity 的唯一 owner 位于 [images/](images/README.md)。
 
 ## 分阶段 GPU 复用
 

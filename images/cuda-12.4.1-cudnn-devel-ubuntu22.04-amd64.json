@@ -1,0 +1,12 @@
+{
+  "schema": "kernelinfra.container-image.v1",
+  "name": "cuda-12.4.1-cudnn-devel-ubuntu22.04-amd64",
+  "image_ref": "nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04",
+  "platform": "linux/amd64",
+  "manifest_digest": "sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4",
+  "config_digest": "sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d",
+  "cuda_version": "12.4.1",
+  "nvcc_build": "12.4.131",
+  "required_tools": ["nvcc", "cuobjdump", "compute-sanitizer"],
+  "source": "https://hub.docker.com/r/nvidia/cuda/tags?name=12.4.1&ordering=&page=&page_size="
+}

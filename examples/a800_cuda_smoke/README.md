@@ -7,8 +7,12 @@ optimization claim.
 ## Frozen contract
 
 - Hardware: NVIDIA A800, compute capability 8.0.
-- Toolchain image:
-  `sha256:01fb061898c1391f77073da003e3bfa2b92b33679d2e024a932fa9d1ed635cf0`.
+- Toolchain image contract:
+  `../../images/cuda-12.4.1-cudnn-devel-ubuntu22.04-amd64.json`.
+- Registry platform manifest:
+  `sha256:0a1cb6e7bd047a1067efe14efdf0276352d5ca643dfd77963dab1a4f05a003a4`.
+- Local config digest:
+  `sha256:edd3b6bf59a6acc4d56fdcdfade4d1bc9aa206359a6823a1a43a162c3021334d`.
 - Toolchain: CUDA 12.4.1, NVCC 12.4.131.
 - Compile target: `sm_80`, `-O3`, C++17, line info, ptxas verbose report.
 - Workloads: 4,194,304 and 16,777,216 FP32 elements.
@@ -18,9 +22,10 @@ optimization claim.
 - Guardrail: candidate speedup at least 0.5x on each workload.
 
 The checked task binds the SHA-256 of the canonical
-`src/kernel_infra/adapters/cuda_container.py` adapter plus `harness.cu`, and the
-exact container image ID. The adapter rejects a moving `latest` tag if it no
-longer resolves to that image.
+`src/kernel_infra/adapters/cuda_container.py` adapter, `harness.cu`, and the
+canonical image contract. The adapter rejects the local tag unless it resolves
+to the frozen config digest and the task identity contains both registry
+manifest and config digests.
 
 ## Candidate ABI
 
@@ -75,7 +80,7 @@ containers have no network, drop Linux capabilities, enable
 the per-run compiler artifact directory read-write. The broker-selected physical
 GPU is the only GPU exposed to GPU stages.
 
-The current image is a local image without a registry RepoDigest, so its image
-ID is node-specific custody rather than portable supply-chain provenance. A
-future multi-node task must build and publish a content-addressed evaluator
-image instead of weakening this check.
+The current A800 node could not reach Docker Hub during qualification. It reused
+an exact config object already cached from the official base image and restored
+the frozen official tag. This proves content and runtime identity on that node,
+but not a fresh cross-node registry acquisition; see the image contract guide.

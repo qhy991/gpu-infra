@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 — 2026-08-25
+
+- Add one canonical container image contract for registry reference, platform
+  manifest, config digest, CUDA/NVCC versions, required tools, and provenance.
+- Bind the image contract into each CUDA judge identity and emit both manifest
+  and config digests in every result fingerprint.
+- Run both real CUDA ABIs on the official CUDA 12.4.1 cuDNN devel base config,
+  removing the unrelated PyTorch and KernelEval layers from evaluator runtime.
+- Keep registry acquisition distinct from exact local-cache validation when the
+  node cannot reach Docker Hub.
+
 ## 0.3.0 — 2026-08-25
 
 - Promote Docker/NVCC orchestration from the vector-add example to the canonical

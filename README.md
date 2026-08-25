@@ -69,8 +69,9 @@ the broker socket. Only after that succeeds are unfinished runs made terminal as
 ## Real CUDA container task
 
 `examples/a800_cuda_smoke/` is a real A800 qualification path rather than the
-PyTorch-only scheduling fixture. It pins a local CUDA 12.4 devel image by image
-ID, compiles candidate CUDA with NVCC for `sm_80`, checks exact output, runs
+PyTorch-only scheduling fixture. It binds an official CUDA 12.4 devel image by
+platform manifest and config digest, compiles candidate CUDA with NVCC for
+`sm_80`, checks exact output, runs
 compute-sanitizer memcheck and racecheck, reuses the same binary for balanced
 AB/BA timing, and fingerprints source, binary, SASS, and PTX.
 
@@ -91,6 +92,8 @@ container boundary, evidence, and deliberate limitations.
 reduction-based ABI with a tolerance oracle. It contains a 1.0x shared-reduction
 control, a warp-reduction candidate, and an incorrect control across two frozen
 A800 workloads. See [the RMSNorm task guide](examples/a800_rmsnorm_smoke/README.md).
+
+Container image identity has one owner under [images/](images/README.md).
 
 ## Run artifacts
 
