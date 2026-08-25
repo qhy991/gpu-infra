@@ -53,8 +53,18 @@ v0.15.0 terminal multi-route collection 验收见
 [fleet-collect 报告](docs/v0.15.0-fleet-collect-qualification-2026-08-25.md)。
 v0.16.0 managed-service compatibility preflight 验收见
 [service-preflight 报告](docs/v0.16.0-service-preflight-qualification-2026-08-25.md)。
+版本化 Agent 使用入口见
+[Kernel Infra skill 验收](docs/kernel-infra-agent-skill-qualification-2026-08-25.md)。
 FIBServe、KDA 和容器后端的合同与信任边界见
 [integration guide](docs/integrations.md)。
+
+## Agent Skill
+
+版本化的 Agent 使用入口是
+[`skills/kernel-infra/SKILL.md`](skills/kernel-infra/SKILL.md)。在 task 校验、单机或
+fleet 提交、FIBServe GPU 复用、批量观察/回收、证据解释和远程 fail-closed 诊断时调用
+`$kernel-infra`。Skill 只路由到当前 checkout 的命令，不取代 task/evaluator/broker
+的事实所有权。本机使用符号链接安装 canonical 目录，避免复制后说明漂移。
 
 ## 最小使用方式
 

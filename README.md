@@ -15,7 +15,7 @@ The first release deliberately reuses existing owners:
 - Kernel Infra snapshots inputs, drives staged judges, persists receipts, and
   derives the per-workload frontier.
 
-See [DESIGN.md](DESIGN.md) for the current v0.11 contract and
+See [DESIGN.md](DESIGN.md) for the current v0.16 contract and
 [README.zh-CN.md](README.zh-CN.md) for the Chinese guide. The first real-node
 acceptance records are [the initial A800 pilot](docs/a800-pilot-2026-08-24.md)
 and the [GitHub-release A800 qualification](docs/github-release-a800-2026-08-24.md).
@@ -55,8 +55,27 @@ The v0.15.0 terminal multi-route collection qualification is
 [the fleet-collect report](docs/v0.15.0-fleet-collect-qualification-2026-08-25.md).
 The v0.16.0 managed-service compatibility preflight qualification is
 [the service-preflight report](docs/v0.16.0-service-preflight-qualification-2026-08-25.md).
+The versioned Agent workflow entrypoint is covered by
+[the Kernel Infra skill qualification](docs/kernel-infra-agent-skill-qualification-2026-08-25.md).
 The evaluator adapters and their trust boundaries are documented in
 [the integration guide](docs/integrations.md).
+
+## Agent skill
+
+The versioned agent entrypoint is
+[`skills/kernel-infra/SKILL.md`](skills/kernel-infra/SKILL.md). Invoke
+`$kernel-infra` for task validation, local or fleet submission, managed
+FIBServe reuse, batch observation/collection, evidence interpretation, remote
+qualification, and fail-closed diagnosis. The skill routes to the commands in
+the current checkout and does not replace task/evaluator/broker ownership.
+
+For local automatic discovery, link this canonical directory into the Codex
+skills directory rather than copying it:
+
+```bash
+ln -s /path/to/KernelInfra/skills/kernel-infra \
+  "${CODEX_HOME:-$HOME/.codex}/skills/kernel-infra"
+```
 
 ## Quick start
 

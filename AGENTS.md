@@ -88,5 +88,8 @@
 ## Scope
 
 - The current trust boundary is cooperating agents under one Unix identity.
+- For operating or explaining this infrastructure, read
+  `skills/kernel-infra/SKILL.md`; it is the agent-facing workflow entrypoint,
+  while this file and the checked contracts/docs remain authoritative.
 - Add a new backend or policy only for a concrete evaluator or hardware need.
 - Run `python3 -m unittest discover -s tests -v` before committing.

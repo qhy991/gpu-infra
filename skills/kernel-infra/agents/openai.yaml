@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kernel Infra"
+  short_description: "Run verified parallel GPU kernel experiments"
+  default_prompt: "Use $kernel-infra to submit, monitor, and collect a verified kernel experiment."
