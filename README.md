@@ -230,6 +230,13 @@ kernelctl fleet-submit \
   --require a800 \
   --route-out route.json \
   /path/to/task.json /path/to/candidate
+kernelctl fleet-submit-many \
+  --catalog examples/fleet/catalog.json \
+  --require b200 \
+  --label-prefix explore- \
+  --route-dir exploration-routes \
+  /path/to/task.json \
+  /path/to/candidate-a /path/to/candidate-b /path/to/candidate-c
 
 kernelctl fleet-status \
   --catalog examples/fleet/catalog.json \
@@ -256,6 +263,15 @@ ready deployment affinity, minimum free disk, and healthy broker probes;
 ranking uses observed queue length, idle cards, and active runs with node id as
 a deterministic tie-break. The selected node's broker still decides whether
 and when a GPU is allocated.
+
+`fleet-submit-many` snapshots and validates every candidate before SSH, rejects
+duplicate content, probes the fleet once, and deterministically projects queue,
+remaining idle cards, and active runs to assign up to 64 candidates. At most
+eight transports run concurrently. Each item gets an ordinary route receipt;
+`catalog.json`, `probe.json`, and `summary.json` are stored in one create-only
+directory. Partial remote success is preserved and never causes retry,
+failover, rollback, or cancellation of accepted sibling runs. The summary is a
+derived index, not campaign state, and adds no digest.
 
 Transport snapshots the candidate, addresses the bundle by task/candidate
 digests, rejects unsafe tar members, installs it in the node-owned immutable

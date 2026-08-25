@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import concurrent.futures
 import json
 import os
 import signal
@@ -16,8 +17,10 @@ from typing import Any
 from .contracts import ContractError, digest_json, load_task
 from .fleet import (
     FLEET_ENDPOINTS_SCHEMA,
+    FLEET_BATCH_SUMMARY_SCHEMA,
     FleetSelectionError,
     MAX_ARTIFACT_BYTES,
+    MAX_FLEET_BATCH_CANDIDATES,
     RECEIVE_SCHEMA,
     ROUTE_SCHEMA,
     create_fleet_bundle,
@@ -27,6 +30,7 @@ from .fleet import (
     load_fleet_catalog,
     load_fleet_endpoints,
     parse_locator,
+    plan_batch_nodes,
     probe_fleet,
     receive_fleet_bundle,
     remote_kernelctl_json,
@@ -115,6 +119,21 @@ def _parser() -> argparse.ArgumentParser:
     fleet_submit.add_argument("--json", action="store_true")
     fleet_submit.add_argument("task", type=Path)
     fleet_submit.add_argument("candidate", type=Path)
+
+    fleet_submit_many = sub.add_parser(
+        "fleet-submit-many",
+        help="route and submit several immutable candidates from one probe",
+    )
+    fleet_submit_many.add_argument("--catalog", type=Path, required=True)
+    fleet_submit_many.add_argument("--require", action="append", default=[])
+    fleet_submit_many.add_argument(
+        "--min-free-gb", type=_nonnegative_float, default=1.0
+    )
+    fleet_submit_many.add_argument("--label-prefix")
+    fleet_submit_many.add_argument("--route-dir", type=Path, required=True)
+    fleet_submit_many.add_argument("--json", action="store_true")
+    fleet_submit_many.add_argument("task", type=Path)
+    fleet_submit_many.add_argument("candidates", nargs="+", type=Path)
 
     fleet_receive = sub.add_parser("fleet-receive", help=argparse.SUPPRESS)
     _client_socket(fleet_receive)
@@ -298,6 +317,8 @@ def main(argv: list[str] | None = None) -> int:
         return _fleet_probe(args)
     if args.command == "fleet-submit":
         return _fleet_submit(args)
+    if args.command == "fleet-submit-many":
+        return _fleet_submit_many(args)
     if args.command == "fleet-receive":
         return _fleet_receive(args)
     if args.command == "fleet-export":
@@ -521,6 +542,99 @@ def _fleet_probe(args: argparse.Namespace) -> int:
     return 0 if any(item["status"] == "ok" for item in value["observations"]) else 1
 
 
+def _route_common(
+    *,
+    catalog,
+    task,
+    manifest,
+    required,
+    deployments,
+    min_free_bytes,
+    observations,
+    routed_at,
+):
+    return {
+        "schema": ROUTE_SCHEMA,
+        "routed_at": routed_at,
+        "catalog": str(catalog.source_path),
+        "catalog_sha256": catalog.digest,
+        "bundle_id": manifest["bundle_id"],
+        "task_id": task.task_id,
+        "task_sha256": manifest["task_sha256"],
+        "candidate_sha256": manifest["candidate_sha256"],
+        "required_capabilities": sorted(required),
+        "required_deployments": sorted(deployments),
+        "min_free_bytes": min_free_bytes,
+        "observations": observations,
+    }
+
+
+def _seal_route_receipt(value):
+    return {**value, "route_receipt_sha256": digest_json(value)}
+
+
+def _failed_route_receipt(
+    *, common, decisions, error, node=None, selected_observation=None
+):
+    return _seal_route_receipt(
+        {
+            **common,
+            "decisions": decisions,
+            "selected_node": node.node_id if node is not None else None,
+            "selected_observation": selected_observation,
+            "status": "failed",
+            "locator": None,
+            "remote": None,
+            "error": error,
+        }
+    )
+
+
+def _submit_route_assignment(
+    *,
+    common,
+    decisions,
+    node,
+    selected_observation,
+    catalog,
+    archive,
+    manifest,
+    label,
+):
+    base = {
+        **common,
+        "decisions": decisions,
+        "selected_node": node.node_id,
+        "selected_observation": selected_observation,
+    }
+    try:
+        remote = submit_bundle_to_node(
+            node=node,
+            catalog=catalog,
+            archive_path=archive,
+            bundle_id=manifest["bundle_id"],
+            label=label,
+        )
+    except Exception as exc:
+        return _failed_route_receipt(
+            common=common,
+            decisions=decisions,
+            node=node,
+            selected_observation=selected_observation,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+    locator = {"node_id": node.node_id, "run_id": remote["run"]["run_id"]}
+    return _seal_route_receipt(
+        {
+            **base,
+            "status": "submitted",
+            "locator": locator,
+            "remote": remote,
+            "error": None,
+        }
+    )
+
+
 def _fleet_submit(args: argparse.Namespace) -> int:
     route_output = args.route_out.expanduser().resolve() if args.route_out else None
     if route_output is not None and route_output.exists():
@@ -543,20 +657,16 @@ def _fleet_submit(args: argparse.Namespace) -> int:
             label = (args.label or args.candidate.name or task.task_id).strip()
             if not label:
                 raise ValueError("fleet submission label must not be empty")
-            common = {
-                "schema": ROUTE_SCHEMA,
-                "routed_at": utc_now(),
-                "catalog": str(catalog.source_path),
-                "catalog_sha256": catalog.digest,
-                "bundle_id": manifest["bundle_id"],
-                "task_id": task.task_id,
-                "task_sha256": manifest["task_sha256"],
-                "candidate_sha256": manifest["candidate_sha256"],
-                "required_capabilities": sorted(required),
-                "required_deployments": sorted(deployments),
-                "min_free_bytes": int(args.min_free_gb * 1024**3),
-                "observations": observations,
-            }
+            common = _route_common(
+                catalog=catalog,
+                task=task,
+                manifest=manifest,
+                required=required,
+                deployments=deployments,
+                min_free_bytes=int(args.min_free_gb * 1024**3),
+                observations=observations,
+                routed_at=utc_now(),
+            )
             try:
                 node, selected_observation, decisions = select_node(
                     catalog=catalog,
@@ -566,71 +676,31 @@ def _fleet_submit(args: argparse.Namespace) -> int:
                     min_free_bytes=int(args.min_free_gb * 1024**3),
                 )
             except FleetSelectionError as exc:
-                receipt = {
-                    **common,
-                    "decisions": exc.decisions,
-                    "selected_node": None,
-                    "selected_observation": None,
-                    "status": "failed",
-                    "locator": None,
-                    "remote": None,
-                    "error": str(exc),
-                }
-                receipt = {
-                    **receipt,
-                    "route_receipt_sha256": digest_json(receipt),
-                }
-                if route_output is not None:
-                    _atomic_new_json(route_output, receipt)
-                print(f"kernelctl: {receipt['error']}", file=sys.stderr)
-                return 1
-            base = {
-                **common,
-                "decisions": decisions,
-                "selected_node": node.node_id,
-                "selected_observation": selected_observation,
-            }
-            try:
-                remote = submit_bundle_to_node(
-                    node=node,
-                    catalog=catalog,
-                    archive_path=archive,
-                    bundle_id=manifest["bundle_id"],
-                    label=label,
+                receipt = _failed_route_receipt(
+                    common=common,
+                    decisions=exc.decisions,
+                    error=str(exc),
                 )
-            except Exception as exc:
-                receipt = {
-                    **base,
-                    "status": "failed",
-                    "locator": None,
-                    "remote": None,
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
-                receipt = {
-                    **receipt,
-                    "route_receipt_sha256": digest_json(receipt),
-                }
                 if route_output is not None:
                     _atomic_new_json(route_output, receipt)
                 print(f"kernelctl: {receipt['error']}", file=sys.stderr)
                 return 1
-            locator = {
-                "node_id": node.node_id,
-                "run_id": remote["run"]["run_id"],
-            }
-            receipt = {
-                **base,
-                "status": "submitted",
-                "locator": locator,
-                "remote": remote,
-                "error": None,
-            }
-            receipt = {
-                **receipt,
-                "route_receipt_sha256": digest_json(receipt),
-            }
+            receipt = _submit_route_assignment(
+                common=common,
+                decisions=decisions,
+                node=node,
+                selected_observation=selected_observation,
+                catalog=catalog,
+                archive=archive,
+                manifest=manifest,
+                label=label,
+            )
             if route_output is not None:
                 _atomic_new_json(route_output, receipt)
+            if receipt["status"] != "submitted":
+                print(f"kernelctl: {receipt['error']}", file=sys.stderr)
+                return 1
+            locator = receipt["locator"]
             if args.json:
                 print(json.dumps(receipt, indent=2, ensure_ascii=False))
             else:
@@ -639,6 +709,204 @@ def _fleet_submit(args: argparse.Namespace) -> int:
     except (ContractError, OSError, RuntimeError, ValueError) as exc:
         print(f"kernelctl: {exc}", file=sys.stderr)
         return 1
+
+
+def _fleet_submit_many(args: argparse.Namespace) -> int:
+    route_dir = args.route_dir.expanduser().resolve()
+    if route_dir.exists():
+        print(
+            f"kernelctl: refusing to overwrite fleet batch directory: {route_dir}",
+            file=sys.stderr,
+        )
+        return 1
+    if len(args.candidates) > MAX_FLEET_BATCH_CANDIDATES:
+        print(
+            f"kernelctl: fleet batch supports at most "
+            f"{MAX_FLEET_BATCH_CANDIDATES} candidates",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        catalog = load_fleet_catalog(args.catalog)
+        with tempfile.TemporaryDirectory(prefix="kernelinfra-fleet-batch-") as directory:
+            workspace = Path(directory)
+            prepared = []
+            identities: dict[tuple[str, str], int] = {}
+            task = None
+            prefix = str(args.label_prefix or "").strip()
+            for index, candidate in enumerate(args.candidates):
+                item_workspace = workspace / f"{index:03d}"
+                item_workspace.mkdir()
+                item_task, manifest, archive = create_fleet_bundle(
+                    task_path=args.task,
+                    candidate=candidate,
+                    workspace=item_workspace,
+                )
+                if task is None:
+                    task = item_task
+                elif item_task.digest != task.digest:
+                    raise RuntimeError("fleet batch task changed during preflight")
+                identity = (
+                    manifest["task_sha256"],
+                    manifest["candidate_sha256"],
+                )
+                if identity in identities:
+                    raise ContractError(
+                        f"fleet batch duplicate candidate content at indexes "
+                        f"{identities[identity]} and {index}"
+                    )
+                identities[identity] = index
+                label = f"{prefix}{index:03d}" if prefix else candidate.name.strip()
+                if not label:
+                    raise ValueError(f"fleet batch candidate {index} has no label")
+                prepared.append(
+                    {
+                        "index": index,
+                        "candidate": candidate.expanduser().resolve(),
+                        "manifest": manifest,
+                        "archive": archive,
+                        "label": label,
+                    }
+                )
+            assert task is not None
+            required = set(args.require)
+            deployments = required_deployments(task)
+            min_free_bytes = int(args.min_free_gb * 1024**3)
+            observations = probe_fleet(catalog)
+            routed_at = utc_now()
+            planning_error = None
+            try:
+                assignments, decisions = plan_batch_nodes(
+                    catalog=catalog,
+                    observations=observations,
+                    required_capabilities=required,
+                    required_deployments=deployments,
+                    min_free_bytes=min_free_bytes,
+                    count=len(prepared),
+                )
+            except FleetSelectionError as exc:
+                assignments = [None] * len(prepared)
+                decisions = exc.decisions
+                planning_error = str(exc)
+
+            route_dir.parent.mkdir(parents=True, exist_ok=True)
+            route_dir.mkdir(mode=0o700)
+            (route_dir / "routes").mkdir(mode=0o700)
+            catalog_raw = json.loads(catalog.source_path.read_text(encoding="utf-8"))
+            if digest_json(catalog_raw) != catalog.digest:
+                raise RuntimeError("fleet catalog changed during batch preflight")
+            _atomic_new_json(route_dir / "catalog.json", catalog_raw)
+            _atomic_new_json(
+                route_dir / "probe.json",
+                {
+                    "schema": "kernelinfra.fleet-probe.v1",
+                    "observed_at": routed_at,
+                    "catalog": str(catalog.source_path),
+                    "catalog_sha256": catalog.digest,
+                    "observations": observations,
+                },
+            )
+
+            def submit_item(pair):
+                item, assignment = pair
+                common = _route_common(
+                    catalog=catalog,
+                    task=task,
+                    manifest=item["manifest"],
+                    required=required,
+                    deployments=deployments,
+                    min_free_bytes=min_free_bytes,
+                    observations=observations,
+                    routed_at=routed_at,
+                )
+                if assignment is None:
+                    receipt = _failed_route_receipt(
+                        common=common,
+                        decisions=decisions,
+                        error=planning_error,
+                    )
+                else:
+                    receipt = _submit_route_assignment(
+                        common=common,
+                        decisions=decisions,
+                        node=assignment.node,
+                        selected_observation=assignment.observation,
+                        catalog=catalog,
+                        archive=item["archive"],
+                        manifest=item["manifest"],
+                        label=item["label"],
+                    )
+                route_relative = f"routes/{item['index']:03d}.json"
+                receipt_error = None
+                try:
+                    _atomic_new_json(route_dir / route_relative, receipt)
+                except OSError as exc:
+                    receipt_error = f"{type(exc).__name__}: {exc}"
+                status = (
+                    "receipt_error"
+                    if receipt_error is not None
+                    else receipt["status"]
+                )
+                return {
+                    "index": item["index"],
+                    "candidate": str(item["candidate"]),
+                    "label": item["label"],
+                    "bundle_id": item["manifest"]["bundle_id"],
+                    "assignment": (
+                        {
+                            "node_id": assignment.node.node_id,
+                            "assigned_before": assignment.assigned_before,
+                            "projected_rank": list(assignment.projected_rank),
+                        }
+                        if assignment is not None
+                        else None
+                    ),
+                    "status": status,
+                    "route": route_relative if receipt_error is None else None,
+                    "locator": receipt.get("locator"),
+                    "error": receipt_error or receipt.get("error"),
+                }
+
+            pairs = list(zip(prepared, assignments))
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=min(8, len(pairs))
+            ) as executor:
+                futures = [executor.submit(submit_item, pair) for pair in pairs]
+                items = [future.result() for future in futures]
+            items.sort(key=lambda item: item["index"])
+            counts: dict[str, int] = {}
+            for item in items:
+                counts[item["status"]] = counts.get(item["status"], 0) + 1
+            summary = {
+                "schema": FLEET_BATCH_SUMMARY_SCHEMA,
+                "created_at": utc_now(),
+                "catalog": "catalog.json",
+                "probe": "probe.json",
+                "task_id": task.task_id,
+                "items": items,
+                "counts": dict(sorted(counts.items())),
+                "partial_success_is_not_rolled_back": True,
+            }
+            _atomic_new_json(route_dir / "summary.json", summary)
+    except (ContractError, OSError, RuntimeError, ValueError) as exc:
+        print(f"kernelctl: cannot submit fleet batch: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+    else:
+        for item in summary["items"]:
+            locator = item["locator"]
+            target = (
+                f"{locator['node_id']}:{locator['run_id']}"
+                if locator is not None
+                else "-"
+            )
+            print(
+                f"{item['index']:03d} status={item['status']} "
+                f"locator={target} route={item['route'] or '-'}"
+            )
+        print(f"path={route_dir}")
+    return 0 if summary["counts"] == {"submitted": len(summary["items"])} else 1
 
 
 def _fleet_receive(args: argparse.Namespace) -> int:

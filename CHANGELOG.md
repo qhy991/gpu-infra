@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.14.0 — 2026-08-25
+
+- Add `fleet-submit-many` for 1–64 prevalidated immutable candidates using one
+  fleet probe and at most eight concurrent transports.
+- Reject any invalid or duplicate candidate before SSH. Preserve the shared
+  probe, exact catalog, one ordinary route receipt per item, and a derived batch
+  summary without adding a batch digest or mutable campaign state.
+- Assign candidates deterministically using projected queue, remaining idle
+  cards, active runs, and node id while leaving final allocation to each node's
+  broker.
+- Preserve partial remote outcomes and never retry elsewhere, roll back, or
+  cancel already accepted runs when a sibling item fails.
+
 ## 0.13.0 — 2026-08-25
 
 - Add strict `kernelinfra.fleet-endpoints.v1` maps that update only current SSH,

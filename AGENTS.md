@@ -62,6 +62,11 @@
   original catalog/route still own selection, inbox, locator, and run identity;
   endpoint replacement requires a route and must prove continuity against that
   exact node-owned run before mutation or derived queries.
+- Fleet batch submission is one bounded client request over ordinary immutable
+  route receipts, not campaign state or a global queue. Validate and snapshot
+  every candidate before the single probe, reject duplicate content, plan from
+  one observation, and never reroute, roll back, or cancel independently
+  accepted runs because another batch item fails.
 - New SHA-256 fields, fingerprints, and repeated whole-tree hashing are
   prohibited by default. Use SHA-256 only when it is required for a real
   integrity or content-addressing boundary, replaces a materially more

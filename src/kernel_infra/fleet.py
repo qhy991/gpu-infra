@@ -32,11 +32,13 @@ REMOTE_OBSERVATION_SCHEMA = "kernelinfra.remote-observation.v2"
 ARTIFACT_MANIFEST_SCHEMA = "kernelinfra.artifact-manifest.v1"
 ARTIFACT_MIRROR_SCHEMA = "kernelinfra.artifact-mirror.v2"
 FLEET_SNAPSHOT_SCHEMA = "kernelinfra.fleet-snapshot.v2"
+FLEET_BATCH_SUMMARY_SCHEMA = "kernelinfra.fleet-batch-summary.v1"
 MAX_BUNDLE_BYTES = 256 * 1024 * 1024
 MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
 MAX_ARTIFACT_FILES = 10_000
 MAX_ARTIFACT_MANIFEST_BYTES = 16 * 1024 * 1024
 MAX_FLEET_SNAPSHOT_ROUTES = 256
+MAX_FLEET_BATCH_CANDIDATES = 64
 _ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,95}$")
 _SSH = re.compile(r"^[A-Za-z0-9_.@:-]+$")
 _REMOTE_PATH = re.compile(r"^/[A-Za-z0-9_./-]+$")
@@ -74,6 +76,15 @@ class FleetEndpoint:
 class FleetEndpoints:
     nodes: tuple[FleetEndpoint, ...]
     source_path: Path
+
+
+@dataclass(frozen=True)
+class FleetBatchAssignment:
+    index: int
+    node: FleetNode
+    observation: dict[str, Any]
+    projected_rank: tuple[Any, ...]
+    assigned_before: int
 
 
 class FleetSelectionError(RuntimeError):
@@ -434,6 +445,75 @@ def select_node(
         raise FleetSelectionError(f"no eligible fleet node: {summary}", decisions)
     _rank, node, observation = min(eligible, key=lambda item: item[0])
     return node, observation, decisions
+
+
+def plan_batch_nodes(
+    *,
+    catalog: FleetCatalog,
+    observations: list[dict[str, Any]],
+    required_capabilities: set[str],
+    required_deployments: set[str],
+    min_free_bytes: int,
+    count: int,
+) -> tuple[list[FleetBatchAssignment], list[dict[str, Any]]]:
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        raise ValueError("fleet batch count must be positive")
+    if count > MAX_FLEET_BATCH_CANDIDATES:
+        raise ValueError(
+            f"fleet batch supports at most {MAX_FLEET_BATCH_CANDIDATES} candidates"
+        )
+    _first, _observation, decisions = select_node(
+        catalog=catalog,
+        observations=observations,
+        required_capabilities=required_capabilities,
+        required_deployments=required_deployments,
+        min_free_bytes=min_free_bytes,
+    )
+    eligible_ids = {
+        decision["node_id"] for decision in decisions if decision["eligible"]
+    }
+    by_id = {node.node_id: node for node in catalog.nodes}
+    observed = {item["node_id"]: item for item in observations}
+    assigned = {node_id: 0 for node_id in eligible_ids}
+    assignments: list[FleetBatchAssignment] = []
+    for index in range(count):
+        ranked: list[
+            tuple[tuple[Any, ...], FleetNode, dict[str, Any], int]
+        ] = []
+        for node_id in eligible_ids:
+            node = by_id[node_id]
+            observation = observed[node_id]
+            status = observation["node"]
+            broker = status["broker"]
+            idle = sum(
+                1 for gpu in broker.get("gpus", []) if gpu.get("state") == "idle"
+            )
+            assigned_before = assigned[node_id]
+            projected_assigned = assigned_before + 1
+            projected_rank = (
+                len(broker.get("queue", []))
+                + max(0, projected_assigned - idle),
+                -max(0, idle - projected_assigned),
+                len(status.get("active_runs", [])) + projected_assigned,
+                node.node_id,
+            )
+            ranked.append(
+                (projected_rank, node, observation, assigned_before)
+            )
+        projected_rank, node, observation, assigned_before = min(
+            ranked, key=lambda item: item[0]
+        )
+        assignments.append(
+            FleetBatchAssignment(
+                index=index,
+                node=node,
+                observation=observation,
+                projected_rank=projected_rank,
+                assigned_before=assigned_before,
+            )
+        )
+        assigned[node.node_id] += 1
+    return assignments, decisions
 
 
 def _fleet_task_is_relocatable(task: TaskSpec) -> None:

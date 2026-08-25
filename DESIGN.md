@@ -1,4 +1,4 @@
-# Kernel Infra v0.13 design contract
+# Kernel Infra v0.14 design contract
 
 ## Goal
 
@@ -30,6 +30,8 @@ kernel validity, and performance-frontier decisions separate.
     receipts and concurrent fixed-node lifecycle observations.
 12. **Fleet endpoint map**: current SSH, kernelctl, and socket reachability for
     an unchanged historical node id; it owns no route or run fact.
+13. **Fleet batch request**: one bounded prevalidated submission action whose
+    outputs are ordinary independent route receipts plus a derived summary.
 
 No separate campaign state, agent memory, or experiment database is required.
 Agents can submit several runs, and a task digest groups the comparable
@@ -56,6 +58,8 @@ set.
 | Downloaded artifact copy | local mirror, explicitly non-authoritative |
 | Multi-route current view | derived client snapshot; node runs remain authoritative |
 | Current post-acceptance transport endpoint | checked fleet endpoint map |
+| Batch item lifecycle and result | each ordinary route receipt and node run |
+| Batch index/counts | derived local `summary.json` |
 
 Kernel Infra never edits evaluator code, selects a winner from agent prose, or
 uses a live aggregate score as the factual timing owner.
@@ -112,6 +116,14 @@ Agent route operation after node software upgrade
   -> prove exact run/task/candidate ledger continuity at that endpoint
   -> perform one fixed-node status/wait/cancel/frontier/fetch/snapshot operation
   -> record exact transport values without rewriting route history
+
+Agent fleet-submit-many
+  -> snapshot and validate every candidate; reject duplicates before SSH
+  -> probe the fleet once and freeze one advisory observation
+  -> assign all items by deterministic projected load
+  -> submit through bounded concurrent transports to selected node daemons
+  -> persist one ordinary route receipt per item as soon as it returns
+  -> derive a local summary; never roll back independent accepted runs
 ```
 
 Multiple runs advance concurrently. CPU compilation uses a separate bounded
@@ -209,6 +221,15 @@ submitting agent.
     status, snapshot, and artifact export validate their returned evidence.
 32. Observation, snapshot, and mirror v2 outputs embed the exact endpoint values
     used. Endpoint maps add no digest or alternate node identity authority.
+33. Fleet batch submission validates all task/candidate bundles and duplicate
+    identities before any probe or transport. It accepts at most 64 candidates,
+    probes once, and uses at most eight concurrent transports.
+34. Batch assignment projects the shared snapshot's queue, remaining idle GPUs,
+    and active runs with node id as tie-break. It is advisory; node brokers still
+    own actual queueing/allocation and no assignment may fail over after submit.
+35. Every item produces an ordinary route receipt. `summary.json` is a derived
+    immutable index with no digest or lifecycle state. Remote partial success is
+    retained; sibling failure never triggers retry, rollback, or cancellation.
 
 ## Failure semantics
 
@@ -255,10 +276,16 @@ submitting agent.
   node entry, unsafe path/host, wrong state ledger, or run identity drift:
   reject or report unknown without cancel, frontier, fetch install, reroute, or
   historical route mutation.
+- Invalid/duplicate batch candidate or changed task during preflight: reject
+  before probe and create no batch directory. No eligible node: write failed
+  route receipts without transport. Per-item transport or receipt-write failure:
+  retain every independent outcome and return a failed batch summary without
+  cancelling accepted runs.
 
 ## Deliberate exclusions
 
-v0.13 adds trusted cross-host routing, endpoint-stable post-acceptance
+v0.14 adds bounded parallel submission, trusted cross-host routing,
+endpoint-stable post-acceptance
 operations, multi-route observation, and
 terminal-artifact clients over independently authoritative
 single-host services. It attests broker-issued launch and
@@ -320,3 +347,6 @@ independently authoritative node daemons rather than a global scheduler.
 - Historical v0.9 B200 KDA and FIBServe routes remain usable through a checked
   v0.13 endpoint while preserving their original catalog/route bytes; a wrong
   endpoint state root fails before mutation or evidence promotion.
+- A three-candidate batch performs one A800/B200 probe, preserves A800 unknown,
+  concurrently submits three unique B200 routes, and observes all independent
+  terminal results without allocating a GPU for the client control path.

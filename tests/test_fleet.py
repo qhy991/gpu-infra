@@ -4,12 +4,19 @@ import json
 import subprocess
 import tarfile
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from kernel_infra.contracts import ContractError, digest_json
-from kernel_infra.cli import _fleet_fetch, _fleet_remote_run, _fleet_snapshot
+from kernel_infra.cli import (
+    _fleet_fetch,
+    _fleet_remote_run,
+    _fleet_snapshot,
+    _fleet_submit_many,
+)
 from kernel_infra.fleet import (
     FleetCatalog,
     FleetNode,
@@ -22,6 +29,7 @@ from kernel_infra.fleet import (
     load_fleet_endpoints,
     load_route_receipt,
     parse_locator,
+    plan_batch_nodes,
     probe_node,
     receive_fleet_bundle,
     receive_artifact_export,
@@ -167,6 +175,34 @@ class FleetCatalogTests(unittest.TestCase):
             min_free_bytes=1,
         )
         self.assertEqual(selected.node_id, "a")
+
+    def test_batch_planner_balances_projected_idle_capacity_and_queue(self):
+        nodes = (
+            FleetNode("a", "a", "/k", "/s", "/i", frozenset({"cuda"})),
+            FleetNode("b", "b", "/k", "/s", "/i", frozenset({"cuda"})),
+        )
+        catalog = FleetCatalog(nodes, 1, 1, Path("/fleet.json"), "digest")
+        observations = [
+            {"node_id": "a", "status": "ok", "node": node_status(idle=2)},
+            {"node_id": "b", "status": "ok", "node": node_status(idle=1)},
+        ]
+        assignments, decisions = plan_batch_nodes(
+            catalog=catalog,
+            observations=observations,
+            required_capabilities={"cuda"},
+            required_deployments=set(),
+            min_free_bytes=1,
+            count=5,
+        )
+        self.assertTrue(all(item["eligible"] for item in decisions))
+        self.assertEqual(
+            [assignment.node.node_id for assignment in assignments],
+            ["a", "b", "a", "b", "a"],
+        )
+        self.assertEqual(
+            [assignment.assigned_before for assignment in assignments],
+            [0, 0, 1, 1, 2],
+        )
 
     def test_locator_route_and_remote_observation_are_content_bound(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -738,6 +774,187 @@ class FleetBundleTests(unittest.TestCase):
                 create_fleet_bundle(
                     task_path=task_path, candidate=candidate, workspace=workspace
                 )
+
+
+class FleetBatchSubmitTests(unittest.TestCase):
+    def setup_inputs(self, root: Path, count: int):
+        catalog_path = FleetCatalogTests().catalog(root)
+        task_path = FleetBundleTests().task(root)
+        candidates = []
+        for index in range(count):
+            candidate = root / f"candidate-{index}"
+            candidate.mkdir()
+            (candidate / "kernel.cu").write_text(f"source-{index}\n")
+            candidates.append(candidate)
+        return catalog_path, task_path, candidates
+
+    @staticmethod
+    def args(catalog, task, candidates, route_dir):
+        return argparse.Namespace(
+            catalog=catalog,
+            require=["cuda"],
+            min_free_gb=0.0,
+            label_prefix="batch-",
+            route_dir=route_dir,
+            json=True,
+            task=task,
+            candidates=candidates,
+        )
+
+    def test_batch_preflight_rejects_duplicate_content_before_probe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog, task, candidates = self.setup_inputs(root, 2)
+            (candidates[1] / "kernel.cu").write_text("source-0\n")
+            output = root / "batch"
+            args = self.args(catalog, task, candidates, output)
+            with mock.patch("kernel_infra.cli.probe_fleet") as probe, mock.patch(
+                "sys.stderr", new=io.StringIO()
+            ):
+                self.assertEqual(_fleet_submit_many(args), 1)
+            probe.assert_not_called()
+            self.assertFalse(output.exists())
+
+    def test_batch_probes_once_balances_and_submits_concurrently(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog_path, task, candidates = self.setup_inputs(root, 3)
+            catalog = load_fleet_catalog(catalog_path)
+            observations = [
+                {
+                    "node_id": "a800",
+                    "status": "ok",
+                    "node": node_status(idle=2),
+                },
+                {
+                    "node_id": "b200",
+                    "status": "ok",
+                    "node": node_status(idle=1),
+                },
+            ]
+            output = root / "batch"
+            args = self.args(catalog_path, task, candidates, output)
+            lock = threading.Lock()
+            active = 0
+            maximum = 0
+
+            def submit(*, node, bundle_id, **_kwargs):
+                nonlocal active, maximum
+                with lock:
+                    active += 1
+                    maximum = max(maximum, active)
+                time.sleep(0.05)
+                with lock:
+                    active -= 1
+                return {
+                    "schema": "kernelinfra.fleet-receive.v1",
+                    "bundle_id": bundle_id,
+                    "bundle_dir": node.inbox + "/" + bundle_id,
+                    "run": {"run_id": "batch-run-" + bundle_id[:8]},
+                }
+
+            with mock.patch(
+                "kernel_infra.cli.probe_fleet", return_value=observations
+            ) as probe, mock.patch(
+                "kernel_infra.cli.submit_bundle_to_node", side_effect=submit
+            ) as remote, mock.patch("sys.stdout", new=io.StringIO()):
+                self.assertEqual(_fleet_submit_many(args), 0)
+            probe.assert_called_once()
+            self.assertEqual(remote.call_count, 3)
+            self.assertGreaterEqual(maximum, 2)
+            summary = json.loads((output / "summary.json").read_text())
+            self.assertEqual(summary["schema"], "kernelinfra.fleet-batch-summary.v1")
+            self.assertEqual(summary["counts"], {"submitted": 3})
+            self.assertEqual(
+                [item["assignment"]["node_id"] for item in summary["items"]],
+                ["a800", "b200", "a800"],
+            )
+            saved_catalog = load_fleet_catalog(output / "catalog.json")
+            routes = [output / item["route"] for item in summary["items"]]
+            for path in routes:
+                receipt = load_route_receipt(path, saved_catalog)
+                self.assertEqual(receipt["status"], "submitted")
+                self.assertEqual(receipt["observations"], observations)
+
+    def test_batch_preserves_partial_remote_failure_without_rollback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog_path, task, candidates = self.setup_inputs(root, 3)
+            observations = [
+                {
+                    "node_id": "a800",
+                    "status": "unknown",
+                    "node": None,
+                    "error": "offline",
+                },
+                {
+                    "node_id": "b200",
+                    "status": "ok",
+                    "node": node_status(idle=1),
+                },
+            ]
+            output = root / "batch"
+            args = self.args(catalog_path, task, candidates, output)
+
+            def submit(*, node, bundle_id, label, **_kwargs):
+                if label.endswith("001"):
+                    raise RuntimeError("transport failed")
+                return {
+                    "schema": "kernelinfra.fleet-receive.v1",
+                    "bundle_id": bundle_id,
+                    "bundle_dir": node.inbox + "/" + bundle_id,
+                    "run": {"run_id": "batch-run-" + bundle_id[:8]},
+                }
+
+            with mock.patch(
+                "kernel_infra.cli.probe_fleet", return_value=observations
+            ), mock.patch(
+                "kernel_infra.cli.submit_bundle_to_node", side_effect=submit
+            ) as remote, mock.patch("sys.stdout", new=io.StringIO()):
+                self.assertEqual(_fleet_submit_many(args), 1)
+            self.assertEqual(remote.call_count, 3)
+            summary = json.loads((output / "summary.json").read_text())
+            self.assertEqual(summary["counts"], {"failed": 1, "submitted": 2})
+            self.assertTrue(summary["partial_success_is_not_rolled_back"])
+            self.assertEqual(
+                [item["status"] for item in summary["items"]],
+                ["submitted", "failed", "submitted"],
+            )
+            self.assertTrue(
+                all(
+                    (output / f"routes/{index:03d}.json").is_file()
+                    for index in range(3)
+                )
+            )
+
+    def test_batch_no_eligible_node_writes_failed_routes_without_submit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog_path, task, candidates = self.setup_inputs(root, 2)
+            observations = [
+                {
+                    "node_id": node_id,
+                    "status": "unknown",
+                    "node": None,
+                    "error": "offline",
+                }
+                for node_id in ("a800", "b200")
+            ]
+            output = root / "batch"
+            args = self.args(catalog_path, task, candidates, output)
+            with mock.patch(
+                "kernel_infra.cli.probe_fleet", return_value=observations
+            ), mock.patch(
+                "kernel_infra.cli.submit_bundle_to_node"
+            ) as remote, mock.patch("sys.stdout", new=io.StringIO()):
+                self.assertEqual(_fleet_submit_many(args), 1)
+            remote.assert_not_called()
+            summary = json.loads((output / "summary.json").read_text())
+            self.assertEqual(summary["counts"], {"failed": 2})
+            self.assertTrue(
+                all(item["assignment"] is None for item in summary["items"])
+            )
+            self.assertTrue((output / "probe.json").is_file())
 
 
 class FleetArtifactMirrorTests(unittest.TestCase):

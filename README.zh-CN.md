@@ -159,6 +159,13 @@ kernelctl fleet-submit \
   --require a800 \
   --route-out route.json \
   /path/to/task.json /path/to/candidate
+kernelctl fleet-submit-many \
+  --catalog examples/fleet/catalog.json \
+  --require b200 \
+  --label-prefix explore- \
+  --route-dir exploration-routes \
+  /path/to/task.json \
+  /path/to/candidate-a /path/to/candidate-b /path/to/candidate-c
 
 kernelctl fleet-status \
   --catalog examples/fleet/catalog.json \
@@ -183,6 +190,13 @@ kernelctl fleet-snapshot \
 节点并行 probe；checked capability、ready deployment affinity、free disk 与 broker
 health 决定 eligibility，queue 长度、idle GPU、active run 与 node id 形成确定性排序。
 这只是 routing observation，最终 GPU allocation 仍由目标节点 broker 决定。
+
+`fleet-submit-many` 在 SSH 前快照并校验全部候选、拒绝重复内容，只 probe fleet 一次，
+再按 projected queue、剩余 idle GPU、active run 与 node id 确定性分配最多 64 个候选；
+最多 8 路并发 transport。每项仍生成普通 route receipt；create-only 目录保存
+`catalog.json`、`probe.json` 与派生 `summary.json`。部分远端成功会原样保留，不会因
+同批另一项失败而 retry/failover/rollback/cancel。summary 不是 campaign state，也
+不增加摘要。
 
 bundle 按 task/candidate digest 内容寻址，拒绝 traversal、symlink/device、oversize 与
 digest drift，在目标 node-owned inbox 原子安装后通过该节点 daemon submit。route

@@ -103,6 +103,49 @@ lexicographic node id. This is deterministic routing over a snapshot, not an
 allocation promise. The remote broker may queue the submitted run immediately
 after routing.
 
+## Parallel batch submission
+
+`fleet-submit-many` turns one task plus 1–64 candidate directories into
+independent ordinary routes:
+
+```bash
+kernelctl fleet-submit-many \
+  --catalog catalog.json \
+  --require b200 \
+  --label-prefix explore- \
+  --route-dir exploration-routes \
+  task.json candidate-a candidate-b candidate-c
+```
+
+Before any SSH, the client snapshots and validates the task and every candidate
+and rejects duplicate task/candidate identities. It then probes the complete
+fleet exactly once. Eligible assignment projects the effect of each planned
+item on observed queue length, remaining idle GPUs, and active runs, with node
+id as the final tie-break. This is a bounded client plan over one observation,
+not a reservation: every selected node daemon and broker remains authoritative.
+
+At most eight immutable bundle transports run concurrently. Each item writes a
+normal `kernelinfra.route-receipt.v1` immediately after its remote outcome. The
+create-only directory contains:
+
+```text
+catalog.json              exact checked catalog copy
+probe.json                one shared fleet observation
+routes/000.json            ordinary route receipt for candidate 0
+routes/001.json            ordinary route receipt for candidate 1
+...
+summary.json              derived item index and outcome counts
+```
+
+`kernelinfra.fleet-batch-summary.v1` is not campaign state and has no digest.
+It records candidate path/label, bundle id, projected assignment, route path,
+locator/error, and counts. A local preflight error creates no batch directory.
+No eligible node creates failed route receipts but performs no transport. A
+remote partial failure preserves all submitted and failed receipts, exits 1,
+and never retries elsewhere, rolls back, or cancels accepted sibling runs. If a
+client process dies before `summary.json`, any already written ordinary route
+receipts remain the factual recovery surface.
+
 ## Bundle transport
 
 The client validates the task, requires absolute judge cwd paths, snapshots the

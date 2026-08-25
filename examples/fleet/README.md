@@ -12,6 +12,11 @@ kernelctl fleet-submit \
   --require a800 \
   --route-out route.json \
   /path/to/task.json /path/to/candidate
+kernelctl fleet-submit-many \
+  --catalog examples/fleet/catalog.json \
+  --route-dir exploration-routes \
+  /path/to/task.json \
+  /path/to/candidate-a /path/to/candidate-b
 kernelctl fleet-wait \
   --catalog examples/fleet/catalog.json \
   --route route.json \
@@ -29,6 +34,11 @@ The dispatcher observes but never owns remote queues. An SSH/daemon/probe
 failure is `unknown` and ineligible, never an idle node. Tasks transported by
 v0.9 must use absolute remote judge cwd paths; evaluator installations remain
 node-owned rather than copied into every candidate bundle.
+
+`fleet-submit-many` is bounded convenience over ordinary routes, not a global
+queue. All candidates are snapshotted before the single probe; deterministic
+projected-load assignments are transported concurrently, and independent
+partial outcomes are never rolled back or rerouted.
 
 `fleet-snapshot` is the agent-facing parallel read path after submission. It
 prevalidates every route, queries each immutable locator once, and preserves
