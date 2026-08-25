@@ -241,6 +241,10 @@ kernelctl fleet-fetch \
   --catalog examples/fleet/catalog.json \
   --route route.json \
   --out mirrors/run-001
+kernelctl fleet-snapshot \
+  --catalog examples/fleet/catalog.json \
+  --out fleet-snapshot.json \
+  routes/*.json
 ```
 
 Nodes are probed in parallel. Eligibility combines checked static capabilities,
@@ -268,6 +272,13 @@ identity plus one artifact-set transfer digest, and installs create-only. The
 mirror keeps the checked catalog and route alongside `artifacts/`, but is
 explicitly `authority=mirror-only`: status, frontier, routing, and cancellation
 continue to consult the owning node. SSH failure creates no mirror directory.
+
+For an agent exploring several candidates, `fleet-snapshot` validates every
+route receipt first, rejects duplicate locators, and then queries the fixed
+node/run pairs concurrently. Its create-only output is a derived current view
+with per-route `ok` or `unknown` responses and state counts. It creates no
+campaign database or global queue, performs no retry/failover, and adds no new
+digest; node run states remain authoritative.
 
 ## Evaluator contract
 

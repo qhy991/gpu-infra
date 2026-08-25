@@ -21,6 +21,7 @@ from .fleet import (
     ROUTE_SCHEMA,
     create_fleet_bundle,
     fetch_artifact_export,
+    fleet_snapshot as build_fleet_snapshot,
     install_artifact_mirror,
     load_fleet_catalog,
     parse_locator,
@@ -128,6 +129,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     fleet_fetch.add_argument("--timeout", type=_nonnegative_float)
     fleet_fetch.add_argument("--json", action="store_true")
+
+    fleet_snapshot = sub.add_parser(
+        "fleet-snapshot", help="observe many routed runs in parallel"
+    )
+    fleet_snapshot.add_argument("--catalog", type=Path, required=True)
+    fleet_snapshot.add_argument("--out", type=Path)
+    fleet_snapshot.add_argument("--json", action="store_true")
+    fleet_snapshot.add_argument("routes", nargs="+", type=Path)
 
     for name, help_text in (
         ("fleet-status", "query one routed run on its owning node"),
@@ -268,6 +277,8 @@ def main(argv: list[str] | None = None) -> int:
         return _fleet_export(args)
     if args.command == "fleet-fetch":
         return _fleet_fetch(args)
+    if args.command == "fleet-snapshot":
+        return _fleet_snapshot(args)
     if args.command in {"fleet-status", "fleet-wait", "fleet-cancel"}:
         return _fleet_remote_run(args)
     if args.command == "fleet-frontier":
@@ -664,6 +675,43 @@ def _fleet_fetch(args: argparse.Namespace) -> int:
     else:
         print(str(output))
     return 0
+
+
+def _fleet_snapshot(args: argparse.Namespace) -> int:
+    output = args.out.expanduser().resolve() if args.out is not None else None
+    if output is not None and output.exists():
+        print(
+            f"kernelctl: refusing to overwrite fleet snapshot: {output}",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        catalog = load_fleet_catalog(args.catalog)
+        snapshot = build_fleet_snapshot(catalog=catalog, route_paths=args.routes)
+        if output is not None:
+            _atomic_new_json(output, snapshot)
+    except (ContractError, OSError, RuntimeError, ValueError) as exc:
+        print(f"kernelctl: cannot build fleet snapshot: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(snapshot, indent=2, ensure_ascii=False))
+    else:
+        summary = snapshot["summary"]
+        print(
+            f"FLEET total={summary['total']} ok={summary['ok']} "
+            f"unknown={summary['unknown']} terminal={summary['terminal']} "
+            f"nonterminal={summary['nonterminal']}"
+        )
+        for observation in snapshot["observations"]:
+            locator = observation["locator"]
+            prefix = f"{locator['node_id']}:{locator['run_id']}"
+            if observation["status"] == "ok":
+                print(f"  {prefix} state={observation['response']['state']}")
+            else:
+                print(f"  {prefix} state=unknown error={observation['error']}")
+        if output is not None:
+            print(f"path={output}")
+    return 0 if snapshot["summary"]["ok"] else 1
 
 
 def _fleet_target(args: argparse.Namespace, catalog):

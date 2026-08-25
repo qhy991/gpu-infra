@@ -170,6 +170,10 @@ kernelctl fleet-fetch \
   --catalog examples/fleet/catalog.json \
   --route route.json \
   --out mirrors/run-001
+kernelctl fleet-snapshot \
+  --catalog examples/fleet/catalog.json \
+  --out fleet-snapshot.json \
+  routes/*.json
 ```
 
 节点并行 probe；checked capability、ready deployment affinity、free disk 与 broker
@@ -192,6 +196,11 @@ run 进入终态后，`fleet-fetch` 可以 create-only 地建立完整本地镜�
 摘要。镜像保存 checked catalog、route 与 `artifacts/`，但明确标记
 `authority=mirror-only`；status、frontier、routing 与 cancellation 仍只读取原节点。
 SSH 失败不会留下可误认成成功的镜像目录。
+
+Agent 并行探索多个候选时，可用 `fleet-snapshot` 先完整校验并去重所有 route，再并发
+查询固定 node/run locator。create-only 输出只是一份包含逐 route `ok/unknown` 与状态
+计数的派生当前视图；它不创建 campaign database 或全局队列，不 retry/failover，也不
+增加新摘要，run lifecycle 仍由各节点拥有。
 
 每次候选请求前后，adapter 都会复核 broker peer、独占 job/GPU、launch spec、
 executable/environment digest、健康 worker、service root，以及干净源码 checkout

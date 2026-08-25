@@ -53,6 +53,10 @@
 - Once accepted, a fleet locator is pinned to its node. Status, wait, cancel,
   and frontier must never retry or fail over that node-owned run elsewhere;
   remote operation failure is an unknown observation, not a state transition.
+- A multi-route fleet view is derived only from prevalidated unique route
+  receipts and fixed-node status observations. It must not become campaign
+  state, a global queue, a retry owner, or a second run lifecycle authority;
+  one failed node remains a visible per-route unknown.
 - New SHA-256 fields, fingerprints, and repeated whole-tree hashing are
   prohibited by default. Use SHA-256 only when it is required for a real
   integrity or content-addressing boundary, replaces a materially more

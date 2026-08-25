@@ -9,13 +9,14 @@ from pathlib import Path
 from unittest import mock
 
 from kernel_infra.contracts import ContractError, digest_json
-from kernel_infra.cli import _fleet_fetch
+from kernel_infra.cli import _fleet_fetch, _fleet_snapshot
 from kernel_infra.fleet import (
     FleetCatalog,
     FleetNode,
     build_artifact_manifest,
     create_fleet_bundle,
     fetch_artifact_export,
+    fleet_snapshot,
     install_artifact_mirror,
     load_fleet_catalog,
     load_route_receipt,
@@ -226,6 +227,249 @@ class FleetCatalogTests(unittest.TestCase):
                     allowed_exit_codes=frozenset({0, 3}),
                 )
             self.assertEqual(value["state"], "running")
+
+
+class FleetSnapshotTests(unittest.TestCase):
+    def catalog(self, root: Path):
+        return load_fleet_catalog(FleetCatalogTests().catalog(root))
+
+    def route(
+        self,
+        root: Path,
+        catalog: FleetCatalog,
+        *,
+        node_id: str,
+        run_id: str,
+        name: str,
+        task_id: str = "fleet-task",
+        task_sha256: str = "1" * 64,
+        candidate_sha256: str = "2" * 64,
+    ) -> Path:
+        node = next(node for node in catalog.nodes if node.node_id == node_id)
+        content = {
+            "schema": "kernelinfra.route-receipt.v1",
+            "catalog_sha256": catalog.digest,
+            "status": "submitted",
+            "selected_node": node_id,
+            "bundle_id": "a" * 32,
+            "task_id": task_id,
+            "task_sha256": task_sha256,
+            "candidate_sha256": candidate_sha256,
+            "locator": {"node_id": node_id, "run_id": run_id},
+            "remote": {
+                "bundle_id": "a" * 32,
+                "bundle_dir": node.inbox + "/" + "a" * 32,
+                "run": {"run_id": run_id},
+            },
+        }
+        value = {**content, "route_receipt_sha256": digest_json(content)}
+        path = root / name
+        path.write_text(json.dumps(value))
+        return path
+
+    @staticmethod
+    def response(route, state):
+        value = json.loads(route.read_text())
+        return [
+            {
+                "run_id": value["locator"]["run_id"],
+                "task_id": value["task_id"],
+                "task_sha256": value["task_sha256"],
+                "candidate_sha256": value["candidate_sha256"],
+                "state": state,
+            }
+        ]
+
+    def test_snapshot_observes_mixed_routes_in_locator_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog = self.catalog(root)
+            running = self.route(
+                root,
+                catalog,
+                node_id="b200",
+                run_id="run-z",
+                name="running.json",
+            )
+            unknown = self.route(
+                root,
+                catalog,
+                node_id="a800",
+                run_id="run-a",
+                name="unknown.json",
+            )
+            completed = self.route(
+                root,
+                catalog,
+                node_id="b200",
+                run_id="run-b",
+                name="completed.json",
+            )
+
+            def query(*, node, arguments, **_kwargs):
+                run_id = arguments[-1]
+                self.assertEqual(
+                    arguments[:4], ["status", "--socket", node.socket, "--json"]
+                )
+                if node.node_id == "a800":
+                    raise RuntimeError("ssh timeout")
+                route = completed if run_id == "run-b" else running
+                return self.response(
+                    route, "completed" if run_id == "run-b" else "running"
+                )
+
+            snapshot = fleet_snapshot(
+                catalog=catalog,
+                route_paths=[running, unknown, completed],
+                query=query,
+            )
+            self.assertEqual(snapshot["schema"], "kernelinfra.fleet-snapshot.v1")
+            self.assertEqual(
+                [
+                    (item["locator"]["node_id"], item["locator"]["run_id"])
+                    for item in snapshot["observations"]
+                ],
+                [("a800", "run-a"), ("b200", "run-b"), ("b200", "run-z")],
+            )
+            self.assertEqual(
+                [item["status"] for item in snapshot["observations"]],
+                ["unknown", "ok", "ok"],
+            )
+            self.assertEqual(
+                snapshot["summary"],
+                {
+                    "total": 3,
+                    "ok": 2,
+                    "unknown": 1,
+                    "terminal": 1,
+                    "nonterminal": 1,
+                    "states": {"completed": 1, "running": 1},
+                },
+            )
+
+    def test_snapshot_prevalidates_and_deduplicates_before_remote_queries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog = self.catalog(root)
+            first = self.route(
+                root,
+                catalog,
+                node_id="b200",
+                run_id="same-run",
+                name="first.json",
+            )
+            duplicate = self.route(
+                root,
+                catalog,
+                node_id="b200",
+                run_id="same-run",
+                name="duplicate.json",
+            )
+            query = mock.Mock()
+            with self.assertRaisesRegex(ContractError, "duplicate locator"):
+                fleet_snapshot(
+                    catalog=catalog,
+                    route_paths=[first, duplicate],
+                    query=query,
+                )
+            query.assert_not_called()
+
+            tampered = self.route(
+                root,
+                catalog,
+                node_id="a800",
+                run_id="other-run",
+                name="tampered.json",
+            )
+            value = json.loads(tampered.read_text())
+            value["locator"]["run_id"] = "changed"
+            tampered.write_text(json.dumps(value))
+            with self.assertRaisesRegex(ContractError, "digest"):
+                fleet_snapshot(
+                    catalog=catalog,
+                    route_paths=[first, tampered],
+                    query=query,
+                )
+            query.assert_not_called()
+
+    def test_snapshot_marks_remote_identity_drift_unknown_without_failover(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog = self.catalog(root)
+            route = self.route(
+                root,
+                catalog,
+                node_id="a800",
+                run_id="a800-run",
+                name="route.json",
+            )
+            calls = []
+
+            def query(*, node, **_kwargs):
+                calls.append(node.node_id)
+                return [
+                    {
+                        "run_id": "a800-run",
+                        "task_id": "different-task",
+                        "task_sha256": "1" * 64,
+                        "candidate_sha256": "2" * 64,
+                        "state": "completed",
+                    }
+                ]
+
+            snapshot = fleet_snapshot(
+                catalog=catalog, route_paths=[route], query=query
+            )
+            self.assertEqual(calls, ["a800"])
+            observation = snapshot["observations"][0]
+            self.assertEqual(observation["status"], "unknown")
+            self.assertIsNone(observation["response"])
+            self.assertIn("task_id drift", observation["error"])
+            self.assertEqual(snapshot["summary"]["ok"], 0)
+
+    def test_snapshot_cli_writes_create_only_view_and_signals_all_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog = self.catalog(root)
+            route = self.route(
+                root,
+                catalog,
+                node_id="a800",
+                run_id="unknown-run",
+                name="route.json",
+            )
+            snapshot = {
+                "schema": "kernelinfra.fleet-snapshot.v1",
+                "observed_at": "2026-08-25T00:00:00+00:00",
+                "catalog": str(catalog.source_path),
+                "observations": [],
+                "summary": {
+                    "total": 1,
+                    "ok": 0,
+                    "unknown": 1,
+                    "terminal": 0,
+                    "nonterminal": 0,
+                    "states": {},
+                },
+            }
+            output = root / "snapshot.json"
+            args = argparse.Namespace(
+                catalog=catalog.source_path,
+                out=output,
+                json=True,
+                routes=[route],
+            )
+            with mock.patch(
+                "kernel_infra.cli.build_fleet_snapshot", return_value=snapshot
+            ), mock.patch("sys.stdout", new=io.StringIO()):
+                self.assertEqual(_fleet_snapshot(args), 1)
+            self.assertEqual(json.loads(output.read_text()), snapshot)
+
+            with mock.patch(
+                "kernel_infra.cli.build_fleet_snapshot"
+            ) as build, mock.patch("sys.stderr", new=io.StringIO()):
+                self.assertEqual(_fleet_snapshot(args), 1)
+            build.assert_not_called()
 
 
 class FleetBundleTests(unittest.TestCase):

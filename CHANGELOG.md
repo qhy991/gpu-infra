@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.12.0 — 2026-08-25
+
+- Add `fleet-snapshot` so an agent can observe up to 256 accepted route
+  receipts through at most 16 concurrent fixed-node status queries.
+- Validate and deduplicate every route before opening SSH; malformed input
+  cannot produce a partial view that silently omits an invalid route.
+- Recheck run, task, and candidate identity against the owning route. Preserve
+  transport or identity failure as a per-route unknown without retry/failover.
+- Emit a create-only derived view with exact responses and state counts, but no
+  new digest, campaign database, global queue, or lifecycle authority.
+
+## 0.11.0 — 2026-08-25
+
+- Add fixed-node `fleet-fetch` for bounded export and create-only local mirrors
+  of terminal node-owned run directories.
+- Reject traversal, links/devices, duplicates, truncation, oversize, missing or
+  extra files, route identity drift, size/content drift, and output overwrite.
+- Label mirrors `authority=mirror-only`; remote status, routing, cancellation,
+  judge validity, and frontier remain node-owned.
+- Use one aggregate artifact-set transfer digest and no per-file, manifest, or
+  mirror digests.
+
 ## 0.10.0 — 2026-08-25
 
 - Add fixed-node `fleet-status`, `fleet-wait`, and `fleet-cancel` over accepted

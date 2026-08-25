@@ -1,4 +1,4 @@
-# Kernel Infra v0.11 design contract
+# Kernel Infra v0.12 design contract
 
 ## Goal
 
@@ -26,6 +26,8 @@ kernel validity, and performance-frontier decisions separate.
    eligibility/rank decision, content-addressed transport, and node/run locator.
 10. **Artifact mirror**: a verified, create-only local copy of one terminal
     node run; it is never a lifecycle or frontier authority.
+11. **Fleet snapshot**: one ephemeral read model over prevalidated unique route
+    receipts and concurrent fixed-node lifecycle observations.
 
 No separate campaign state, agent memory, or experiment database is required.
 Agents can submit several runs, and a task digest groups the comparable
@@ -50,6 +52,7 @@ set.
 | Remote queue/allocation/run/deployment/result | selected node daemon/broker |
 | Terminal artifact manifest | selected node run directory |
 | Downloaded artifact copy | local mirror, explicitly non-authoritative |
+| Multi-route current view | derived client snapshot; node runs remain authoritative |
 
 Kernel Infra never edits evaluator code, selects a winner from agent prose, or
 uses a live aggregate score as the factual timing owner.
@@ -93,6 +96,12 @@ Agent fleet-fetch
   -> require a terminal node-owned run and stream its bounded file inventory
   -> verify route identity and one aggregate transfer digest
   -> atomically install a create-only mirror labeled mirror-only
+
+Agent fleet-snapshot
+  -> validate and deduplicate every route before SSH
+  -> query fixed node/run locators concurrently without probe or reroute
+  -> preserve exact ok responses and per-route unknown failures
+  -> derive terminal/nonterminal/state counts without campaign state
 ```
 
 Multiple runs advance concurrently. CPU compilation uses a separate bounded
@@ -176,6 +185,11 @@ submitting agent.
 27. A local artifact mirror is never an authority for run state, routing,
     cancellation, judge validity, or frontier. One aggregate transfer digest is
     sufficient; per-file, manifest, and mirror digests are excluded.
+28. A fleet snapshot validates all route inputs before remote observation,
+    targets each unique locator once, and rechecks run/task/candidate identity.
+    One unknown route cannot be retried elsewhere or erase other observations.
+29. Fleet snapshots are create-only derived views with no independent campaign
+    lifecycle, queue, retry state, or digest.
 
 ## Failure semantics
 
@@ -215,10 +229,14 @@ submitting agent.
 - Artifact fetch from a nonterminal/unreachable node, unsafe or incomplete tar,
   route/run identity drift, transfer-digest mismatch, or existing destination:
   reject without installing a mirror or changing node state.
+- Invalid or duplicate snapshot routes: reject before SSH and create no view.
+  Remote timeout or identity drift after validation: retain that route as
+  unknown while preserving independent observations from other locators.
 
 ## Deliberate exclusions
 
-v0.11 adds a trusted cross-host routing/observation and terminal-artifact client over independently authoritative
+v0.12 adds trusted cross-host routing, multi-route observation, and
+terminal-artifact clients over independently authoritative
 single-host services. It attests broker-issued launch and
 environment digests plus live broker/service/source custody. Files referenced by
 the admitted argv—dataset, model, image, config, and compatibility assets—remain
@@ -272,3 +290,6 @@ independently authoritative node daemons rather than a global scheduler.
   locator into a create-only mirror; every file matches the node manifest while
   mirror metadata remains explicitly non-authoritative.
 - An unreachable A800 locator yields no local mirror and no fallback to B200.
+- One snapshot observes several running and terminal B200 locators concurrently;
+  an unreachable fixed-node locator remains independently unknown, and no
+  snapshot creates, retries, cancels, or reroutes a run.

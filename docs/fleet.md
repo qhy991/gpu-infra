@@ -113,6 +113,33 @@ SHA-256 without overwriting. SSH/daemon/command failure is `unknown`. Route or
 catalog tampering, remote bundle/run drift, and frontier identity drift are
 rejected before use.
 
+## Parallel route snapshot
+
+An agent with several accepted candidates can observe them in one nonblocking
+batch instead of issuing serial SSH calls:
+
+```bash
+kernelctl fleet-snapshot \
+  --catalog catalog.json \
+  --out fleet-snapshot.json \
+  routes/*.json
+```
+
+The client accepts 1–256 submitted route receipts. It validates the complete
+input set and rejects duplicate locators before opening any SSH connection,
+then uses at most 16 concurrent fixed-node `status` calls. Each response must
+match the route's run, task, and candidate identity. Results are sorted by
+`(node_id, run_id)` and contain exact responses/errors plus derived counts for
+ok, unknown, terminal, nonterminal, and lifecycle states.
+
+The snapshot is a read model, not campaign state. It does not probe for a new
+node, submit, retry, fail over, wait, cancel, fetch, or change any run. A timeout
+or identity mismatch is visible as `unknown` only for that route. If all routes
+are unknown the command writes the requested view but exits 1; any ok route
+makes the command exit 0. Existing outputs are never overwritten. The schema
+adds no digest and reuses identities already owned by catalog and route
+receipts.
+
 ## Terminal artifact mirror
 
 The node remains the lifecycle and evidence authority, but a caller may fetch a

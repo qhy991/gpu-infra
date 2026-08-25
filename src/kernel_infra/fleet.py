@@ -21,7 +21,7 @@ from typing import Any, BinaryIO, Callable
 
 from .candidate import hash_snapshot, snapshot_candidate
 from .contracts import ContractError, TaskSpec, digest_json, load_task
-from .store import RunStore, utc_now
+from .store import RunStore, TERMINAL_STATES, utc_now
 
 FLEET_SCHEMA = "kernelinfra.fleet.v1"
 BUNDLE_SCHEMA = "kernelinfra.fleet-bundle.v1"
@@ -30,10 +30,12 @@ RECEIVE_SCHEMA = "kernelinfra.fleet-receive.v1"
 REMOTE_OBSERVATION_SCHEMA = "kernelinfra.remote-observation.v1"
 ARTIFACT_MANIFEST_SCHEMA = "kernelinfra.artifact-manifest.v1"
 ARTIFACT_MIRROR_SCHEMA = "kernelinfra.artifact-mirror.v1"
+FLEET_SNAPSHOT_SCHEMA = "kernelinfra.fleet-snapshot.v1"
 MAX_BUNDLE_BYTES = 256 * 1024 * 1024
 MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
 MAX_ARTIFACT_FILES = 10_000
 MAX_ARTIFACT_MANIFEST_BYTES = 16 * 1024 * 1024
+MAX_FLEET_SNAPSHOT_ROUTES = 256
 _ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,95}$")
 _SSH = re.compile(r"^[A-Za-z0-9_.@:-]+$")
 _REMOTE_PATH = re.compile(r"^/[A-Za-z0-9_./-]+$")
@@ -617,6 +619,116 @@ def remote_observation_receipt(
         "error": error,
     }
     return {**value, "observation_sha256": digest_json(value)}
+
+
+def fleet_snapshot(
+    *,
+    catalog: FleetCatalog,
+    route_paths: list[Path],
+    query: Callable[..., Any] = remote_kernelctl_json,
+) -> dict[str, Any]:
+    if not route_paths:
+        raise ContractError("fleet snapshot requires at least one route receipt")
+    if len(route_paths) > MAX_FLEET_SNAPSHOT_ROUTES:
+        raise ContractError(
+            f"fleet snapshot supports at most {MAX_FLEET_SNAPSHOT_ROUTES} routes"
+        )
+
+    targets: list[tuple[Path, FleetNode, str, dict[str, Any]]] = []
+    locators: set[tuple[str, str]] = set()
+    # Validate every route before opening any SSH connection. A malformed batch
+    # cannot yield a partial view that silently omits an invalid input.
+    for path in route_paths:
+        source = path.expanduser().resolve()
+        node, run_id, route = route_locator_from_receipt(source, catalog)
+        locator = (node.node_id, run_id)
+        if locator in locators:
+            raise ContractError(
+                f"fleet snapshot contains duplicate locator {node.node_id}:{run_id}"
+            )
+        locators.add(locator)
+        targets.append((source, node, run_id, route))
+    targets.sort(key=lambda item: (item[1].node_id, item[2]))
+
+    def observe(
+        target: tuple[Path, FleetNode, str, dict[str, Any]]
+    ) -> dict[str, Any]:
+        source, node, run_id, route = target
+        response: dict[str, Any] | None = None
+        error: str | None = None
+        try:
+            value = query(
+                node=node,
+                catalog=catalog,
+                arguments=["status", "--socket", node.socket, "--json", run_id],
+            )
+            if (
+                not isinstance(value, list)
+                or len(value) != 1
+                or not isinstance(value[0], dict)
+            ):
+                raise RuntimeError("remote status did not return one run")
+            response = value[0]
+            for field, expected in (
+                ("run_id", run_id),
+                ("task_id", route["task_id"]),
+                ("task_sha256", route["task_sha256"]),
+                ("candidate_sha256", route["candidate_sha256"]),
+            ):
+                if response.get(field) != expected:
+                    raise RuntimeError(f"remote status {field} drift")
+            if not isinstance(response.get("state"), str) or not response["state"]:
+                raise RuntimeError("remote status has no lifecycle state")
+        except Exception as exc:
+            response = None
+            error = f"{type(exc).__name__}: {exc}"
+        return {
+            "route": str(source),
+            "route_receipt_sha256": route["route_receipt_sha256"],
+            "locator": {"node_id": node.node_id, "run_id": run_id},
+            "status": "ok" if error is None else "unknown",
+            "response": response,
+            "error": error,
+        }
+
+    observations: list[dict[str, Any]] = []
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(16, len(targets))
+    ) as executor:
+        futures = [executor.submit(observe, target) for target in targets]
+        observations = [future.result() for future in futures]
+    observations.sort(
+        key=lambda item: (item["locator"]["node_id"], item["locator"]["run_id"])
+    )
+
+    states: dict[str, int] = {}
+    terminal = 0
+    nonterminal = 0
+    ok = 0
+    for observation in observations:
+        if observation["status"] != "ok":
+            continue
+        ok += 1
+        state = observation["response"]["state"]
+        states[state] = states.get(state, 0) + 1
+        if state in TERMINAL_STATES:
+            terminal += 1
+        else:
+            nonterminal += 1
+    return {
+        "schema": FLEET_SNAPSHOT_SCHEMA,
+        "observed_at": utc_now(),
+        "catalog": str(catalog.source_path),
+        "observations": observations,
+        "summary": {
+            "total": len(observations),
+            "ok": ok,
+            "unknown": len(observations) - ok,
+            "terminal": terminal,
+            "nonterminal": nonterminal,
+            "states": dict(sorted(states.items())),
+        },
+    }
 
 
 def _artifact_set_sha256(files: list[tuple[Path, str]]) -> str:

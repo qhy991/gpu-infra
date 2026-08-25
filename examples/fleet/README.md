@@ -16,9 +16,17 @@ kernelctl fleet-wait \
   --catalog examples/fleet/catalog.json \
   --route route.json \
   --timeout 900
+kernelctl fleet-snapshot \
+  --catalog examples/fleet/catalog.json \
+  --out fleet-snapshot.json \
+  routes/*.json
 ```
 
 The dispatcher observes but never owns remote queues. An SSH/daemon/probe
 failure is `unknown` and ineligible, never an idle node. Tasks transported by
 v0.9 must use absolute remote judge cwd paths; evaluator installations remain
 node-owned rather than copied into every candidate bundle.
+
+`fleet-snapshot` is the agent-facing parallel read path after submission. It
+prevalidates every route, queries each immutable locator once, and preserves
+per-route unknown failures without adding campaign state or retry behavior.
