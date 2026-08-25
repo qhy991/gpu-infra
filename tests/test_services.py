@@ -15,7 +15,11 @@ from kernel_infra.service_binding import (
 )
 from kernel_infra.service_contracts import load_service_spec
 from kernel_infra.service_store import ServiceStore
-from kernel_infra.services import ServiceManager
+from kernel_infra.services import (
+    ServiceManager,
+    validate_managed_broker,
+    validate_managed_gpu_run,
+)
 from kernel_infra.store import RunStore
 
 
@@ -142,6 +146,12 @@ class ManagedServiceTests(unittest.IsolatedAsyncioTestCase):
             run_store=self.run_store,
             attest=attest,
             health_check=lambda _url: ({"status": "ok"}, {"name": "test"}),
+            broker_probe=lambda _socket: {
+                "broker_version": "0.6.0",
+                "instance_id": "test-broker-instance",
+                "probe_error": None,
+            },
+            gpu_run_probe=lambda _path: None,
         )
 
     async def asyncTearDown(self):
@@ -283,6 +293,12 @@ class ManagedServiceTests(unittest.IsolatedAsyncioTestCase):
             broker_socket=self.root / "broker.sock",
             attest=fail_attest,
             health_check=lambda _url: ({"status": "ok"}, {"name": "test"}),
+            broker_probe=lambda _socket: {
+                "broker_version": "0.6.0",
+                "instance_id": "test-broker-instance",
+                "probe_error": None,
+            },
+            gpu_run_probe=lambda _path: None,
         )
         accepted = manager.start(self.spec_path)
         terminal = await manager.wait(accepted["deployment_id"], timeout=15)
@@ -291,6 +307,48 @@ class ManagedServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(
             (Path(terminal["deployment_dir"]) / "deployment.json").exists()
         )
+        await manager.close()
+
+    async def test_incompatible_broker_or_client_is_rejected_before_history(self):
+        broker_store = ServiceStore(self.root / "old-broker-state")
+        client_probe = mock.Mock()
+        manager = ServiceManager(
+            store=broker_store,
+            gpu_run=self.fake_gpu_run,
+            broker_socket=self.root / "broker.sock",
+            broker_probe=lambda _socket: {
+                "version": 2,
+                "broker_version": None,
+                "instance_id": None,
+                "probe_error": None,
+            },
+            gpu_run_probe=client_probe,
+        )
+        with self.assertRaisesRegex(RuntimeError, "version 0.6"):
+            manager.start(self.spec_path)
+        client_probe.assert_not_called()
+        self.assertEqual(broker_store.list_states(), [])
+        await manager.close()
+
+        client_store = ServiceStore(self.root / "old-client-state")
+        manager = ServiceManager(
+            store=client_store,
+            gpu_run=self.fake_gpu_run,
+            broker_socket=self.root / "broker.sock",
+            broker_probe=lambda _socket: {
+                "broker_version": "0.6.0",
+                "instance_id": "test-broker-instance",
+                "probe_error": None,
+            },
+            gpu_run_probe=mock.Mock(
+                side_effect=RuntimeError(
+                    "managed gpu-run client does not accept unknown estimates"
+                )
+            ),
+        )
+        with self.assertRaisesRegex(RuntimeError, "unknown estimates"):
+            manager.start(self.spec_path)
+        self.assertEqual(client_store.list_states(), [])
         await manager.close()
 
     async def test_immediate_stop_cannot_orphan_spawn(self):
@@ -426,6 +484,38 @@ class ManagedServiceContractTests(unittest.TestCase):
             path.write_text(json.dumps(value))
             with self.assertRaisesRegex(ContractError, "loopback"):
                 load_service_spec(path)
+
+    def test_managed_broker_and_gpu_run_capability_preflight(self):
+        with self.assertRaisesRegex(RuntimeError, "version 0.6"):
+            validate_managed_broker(
+                {"version": 2, "broker_version": None, "instance_id": None}
+            )
+        with self.assertRaisesRegex(RuntimeError, "probe failed"):
+            validate_managed_broker(
+                {
+                    "broker_version": "0.6.0",
+                    "instance_id": "broker-instance",
+                    "probe_error": "inventory unavailable",
+                }
+            )
+        validate_managed_broker(
+            {
+                "broker_version": "1.0.0",
+                "instance_id": "broker-instance",
+                "probe_error": None,
+            }
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            old = root / "old-gpu-run"
+            old.write_text("#!/bin/sh\nexit 2\n")
+            old.chmod(0o755)
+            with self.assertRaisesRegex(RuntimeError, "unknown estimates"):
+                validate_managed_gpu_run(old)
+            current = root / "current-gpu-run"
+            current.write_text("#!/bin/sh\necho --receipt-out\n")
+            current.chmod(0o755)
+            validate_managed_gpu_run(current)
 
 
 class ServiceTaskBindingTests(unittest.TestCase):

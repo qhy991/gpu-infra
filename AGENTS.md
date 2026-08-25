@@ -71,6 +71,10 @@
   snapshot once, mirror only currently terminal runs, and retain nonterminal,
   unknown, and fetch-failed items explicitly. It must never wait, cancel,
   reroute, reinterpret validity, or become artifact/lifecycle authority.
+- Managed service acceptance requires a live broker declaring v0.6+ identity,
+  no broker probe error, and a gpu-run client that parses unknown estimates and
+  supports admission receipt output. Reject incompatibility before creating a
+  deployment history; never translate unknown into a fabricated duration.
 - New SHA-256 fields, fingerprints, and repeated whole-tree hashing are
   prohibited by default. Use SHA-256 only when it is required for a real
   integrity or content-addressing boundary, replaces a materially more

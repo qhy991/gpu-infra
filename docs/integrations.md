@@ -29,6 +29,15 @@ At most one deployment per service id may be nonterminal. `service-stop`
 terminates the guarded broker client and releases the allocation. Restarting a
 stopped service creates a new history rather than overwriting evidence.
 
+Acceptance is preceded by a no-mutation compatibility gate. The live broker
+must declare semantic version 0.6 or newer, a non-empty instance id, and no
+probe error. The configured gpu-run executable is invoked only with
+`--estimate unknown --help`; successful parsing and a visible `--receipt-out`
+option prove the client can preserve unknown ETA and write broker admission
+custody. Failure creates no deployment history and submits no broker job. This
+keeps a stale machine installation from becoming an asynchronous readiness
+failure or silently changing unknown into a numeric estimate.
+
 An optional `idle_grace_s` policy automatically stops a ready deployment only
 after its derived active-consumer set remains empty for the complete grace
 window. Every materialized run records an explicit deployment reference;

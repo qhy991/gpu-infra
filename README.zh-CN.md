@@ -128,6 +128,11 @@ cache；多个 Agent 的 `service` stage 只提交 HTTP 请求，不再逐请求
 生命周期。同一个 service id 存活时禁止再次启动；停止后重启会创建新的 immutable
 history。
 
+创建 history 前，service start 要求 live broker 声明 v0.6+、稳定 instance id 且无
+probe error，并以不提交任务的方式检查所选 gpu-run 能解析 `--estimate unknown`、
+支持 `--receipt-out`。不兼容 broker/client 会在 deployment 目录、event、broker job
+或 GPU request 产生前拒绝；绝不把 unknown 偷换成虚构时长。
+
 ```bash
 kernelctl service-check /path/to/fibserve-service.json
 deployment_id=$(kernelctl service-start /path/to/fibserve-service.json)

@@ -1,3 +1,3 @@
 """Agent-native kernel evaluation control and evidence plane."""
 
-__version__ = "0.15.0"
+__version__ = "0.16.0"

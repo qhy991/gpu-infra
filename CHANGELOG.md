@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.16.0 — 2026-08-25
+
+- Preflight managed service compatibility before deployment acceptance: require
+  a live broker declaring version 0.6+, stable instance identity, and no probe
+  error.
+- Inspect the selected gpu-run client without submitting work; require parsing
+  `--estimate unknown` and exposing `--receipt-out` admission custody.
+- Reject old broker/client combinations before creating deployment state,
+  events, logs, broker jobs, or GPU requests. Preserve unknown estimate semantics
+  instead of silently substituting a numeric duration.
+
 ## 0.15.0 — 2026-08-25
 
 - Add `fleet-collect` for 1–64 ordinary routes: take one concurrent snapshot and

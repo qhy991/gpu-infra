@@ -1,4 +1,4 @@
-# Kernel Infra v0.15 design contract
+# Kernel Infra v0.16 design contract
 
 ## Goal
 
@@ -34,6 +34,8 @@ kernel validity, and performance-frontier decisions separate.
     outputs are ordinary independent route receipts plus a derived summary.
 14. **Fleet collection**: one create-only snapshot plus bounded terminal
     artifact mirrors over ordinary route receipts; it owns no run fact.
+15. **Managed-service compatibility preflight**: live broker/client capability
+    proof performed before any deployment history or GPU request exists.
 
 No separate campaign state, agent memory, or experiment database is required.
 Agents can submit several runs, and a task digest groups the comparable
@@ -64,6 +66,8 @@ set.
 | Batch index/counts | derived local `summary.json` |
 | Collection item state | route snapshot and node-owned run |
 | Collected bytes | per-run mirror, explicitly non-authoritative |
+| Broker runtime/version/instance | live broker status |
+| gpu-run argument capabilities | selected client executable preflight |
 
 Kernel Infra never edits evaluator code, selects a winner from agent prose, or
 uses a live aggregate score as the factual timing owner.
@@ -135,6 +139,12 @@ Agent fleet-collect
   -> preserve running and unknown items without waiting or intervention
   -> concurrently fetch artifacts only for currently terminal runs
   -> retain independent mirror/failure outcomes in a derived summary
+
+Agent service-start
+  -> validate service contract, source/cwd, active owner, and free endpoint
+  -> require live broker v0.6+ identity and a healthy broker probe
+  -> require gpu-run unknown-estimate parsing and admission receipt output
+  -> only then create immutable deployment history and submit to the broker
 ```
 
 Multiple runs advance concurrently. CPU compilation uses a separate bounded
@@ -250,6 +260,12 @@ submitting agent.
 38. Every successful item is an ordinary mirror-only v2 directory. Collection
     summary/counts are derived and add no digest or lifecycle authority. One
     fetch failure cannot remove another successfully installed mirror.
+39. Managed service start must reject before deployment creation unless the live
+    broker declares semantic version 0.6 or newer, a non-empty instance id, and
+    no probe error.
+40. The selected gpu-run executable must parse `--estimate unknown` and expose
+    `--receipt-out` through a no-submit capability check. Unknown must never be
+    translated into an arbitrary numeric estimate for an older client.
 
 ## Failure semantics
 
@@ -305,10 +321,14 @@ submitting agent.
   Nonterminal route: record it and exit 3 without fetch. Unknown observation or
   per-run fetch failure: retain every item and successful mirror, write summary,
   and exit 1 without retry, failover, wait, or cancellation.
+- Old/missing broker identity, broker probe error, or incompatible gpu-run
+  client: reject service start before deployment state/events/logs or broker/GPU
+  mutation. A compatible but busy broker may then queue normally.
 
 ## Deliberate exclusions
 
-v0.15 adds bounded terminal evidence collection, parallel submission,
+v0.16 adds fail-fast managed-service compatibility, bounded terminal evidence
+collection, parallel submission,
 trusted cross-host routing,
 endpoint-stable post-acceptance
 operations, multi-route observation, and
@@ -378,3 +398,6 @@ independently authoritative node daemons rather than a global scheduler.
 - One mixed collection mirrors completed evidence while leaving a running route
   nonterminal with exit 3; a later create-only collection after terminal
   transition mirrors all routes, with no GPU allocation for collection itself.
+- An old production broker/client combination is rejected with no deployment
+  history, while exact broker/client v0.6 passes preflight and may enter its
+  ordinary queue without weakening admission semantics.

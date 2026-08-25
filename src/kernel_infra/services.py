@@ -8,6 +8,7 @@ import os
 import re
 import signal
 import socket
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -20,6 +21,7 @@ from .service_attestation import (
     build_service_receipt,
     load_broker_admission_receipt,
     load_service_receipt,
+    query_broker,
     verify_service_receipt,
 )
 from .service_binding import materialize_service_task
@@ -33,6 +35,45 @@ _GPU_IDS = re.compile(r"\[gpu-run\] running on physical GPUs (?P<ids>[0-9,]+)")
 READY_OR_TERMINAL = frozenset({"ready", *SERVICE_TERMINAL_STATES})
 
 
+def validate_managed_broker(snapshot: dict[str, Any]) -> None:
+    version = snapshot.get("broker_version")
+    match = re.fullmatch(r"(\d+)\.(\d+)(?:\.\d+)?", str(version or ""))
+    if match is None or (int(match.group(1)), int(match.group(2))) < (0, 6):
+        raise RuntimeError(
+            "managed services require a broker declaring version 0.6 or newer"
+        )
+    instance_id = snapshot.get("instance_id")
+    if not isinstance(instance_id, str) or not instance_id:
+        raise RuntimeError("managed services require a broker instance identity")
+    if snapshot.get("probe_error"):
+        raise RuntimeError(
+            f"managed service broker probe failed: {snapshot['probe_error']}"
+        )
+
+
+def validate_managed_gpu_run(path: Path) -> None:
+    try:
+        completed = subprocess.run(
+            [str(path), "--estimate", "unknown", "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f"cannot inspect managed gpu-run client: {exc}") from exc
+    if completed.returncode != 0:
+        detail = completed.stderr[-1000:].strip()
+        raise RuntimeError(
+            "managed gpu-run client does not accept unknown estimates"
+            + (f": {detail}" if detail else "")
+        )
+    if "--receipt-out" not in completed.stdout:
+        raise RuntimeError(
+            "managed gpu-run client does not support admission receipt output"
+        )
+
+
 class ServiceManager:
     def __init__(
         self,
@@ -43,6 +84,8 @@ class ServiceManager:
         run_store: RunStore | None = None,
         attest: Callable[..., dict[str, Any]] = build_service_receipt,
         health_check: Callable[[str], Any] = _service_documents,
+        broker_probe: Callable[[Path], dict[str, Any]] = query_broker,
+        gpu_run_probe: Callable[[Path], None] = validate_managed_gpu_run,
     ) -> None:
         self.store = store
         self.gpu_run = gpu_run.expanduser().resolve()
@@ -50,6 +93,8 @@ class ServiceManager:
         self.run_store = run_store
         self._attest = attest
         self._health_check = health_check
+        self._broker_probe = broker_probe
+        self._gpu_run_probe = gpu_run_probe
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._ready_or_done: dict[str, asyncio.Event] = {}
@@ -117,6 +162,8 @@ class ServiceManager:
             raise ValueError(
                 f"service endpoint is already in use before launch: {spec.service_url}"
             )
+        validate_managed_broker(self._broker_probe(self.broker_socket))
+        self._gpu_run_probe(self.gpu_run)
         state = self.store.create_deployment(spec)
         deployment_id = state["deployment_id"]
         self._ready_or_done[deployment_id] = asyncio.Event()

@@ -149,6 +149,13 @@ bin/kernelctl service-stop "$deployment_id"
 returns a unique deployment id. Starting the same service id again while it is
 active is rejected; stopping and restarting creates another immutable history.
 
+Before creating that history, service start requires the live broker to
+declare version 0.6 or newer, a stable instance id, and no probe error. It also
+checks the selected gpu-run executable without submitting work: the client must
+parse `--estimate unknown` and expose `--receipt-out`. An incompatible deployed
+broker/client is rejected with no deployment directory, event, broker job, or
+GPU request; unknown estimates are never replaced by a made-up duration.
+
 `kernelinfra-fibserve` then verifies the broker peer, exclusive job/GPU,
 healthy workers, broker-issued launch/executable/environment digests, service
 root, and clean source commit/tree both before and after each request. The
