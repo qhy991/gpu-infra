@@ -49,6 +49,8 @@ v0.13.0 immutable-route endpoint upgrade 验收见
 [endpoint-upgrade 报告](docs/v0.13.0-fleet-endpoint-upgrade-qualification-2026-08-25.md)。
 v0.14.0 one-probe parallel fleet submission 验收见
 [fleet-submit-many 报告](docs/v0.14.0-fleet-submit-many-qualification-2026-08-25.md)。
+v0.15.0 terminal multi-route collection 验收见
+[fleet-collect 报告](docs/v0.15.0-fleet-collect-qualification-2026-08-25.md)。
 FIBServe、KDA 和容器后端的合同与信任边界见
 [integration guide](docs/integrations.md)。
 
