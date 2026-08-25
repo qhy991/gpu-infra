@@ -23,6 +23,8 @@ The first exact-commit custom-CUDA qualification is
 [the A800 NVCC/container report](docs/a800-real-cuda-qualification-2026-08-25.md).
 The v0.2 CPU/GPU pipeline qualification is
 [the bounded-local compilation report](docs/a800-bounded-local-compile-2026-08-25.md).
+The v0.2.1 ungraceful-daemon qualification is
+[the pipe-lease crash report](docs/a800-crash-recovery-qualification-2026-08-25.md).
 
 ## Quick start
 

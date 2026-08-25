@@ -21,6 +21,8 @@ v0.2 不复制已有能力：
 [A800 NVCC/container 报告](docs/a800-real-cuda-qualification-2026-08-25.md)。
 v0.2 CPU/GPU pipeline 验收见
 [bounded-local compilation 报告](docs/a800-bounded-local-compile-2026-08-25.md)。
+v0.2.1 非优雅 daemon 退出验收见
+[pipe-lease crash 报告](docs/a800-crash-recovery-qualification-2026-08-25.md)。
 
 ## 最小使用方式
 
