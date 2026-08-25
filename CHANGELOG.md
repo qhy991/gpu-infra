@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.0 — 2026-08-25
+
+- Add fixed-node `fleet-status`, `fleet-wait`, and `fleet-cancel` over accepted
+  `(node_id, run_id)` locators; never reroute or fail over a node-owned run.
+- Add route-receipt-driven `fleet-frontier`, validating catalog, locator,
+  bundle path, remote run, task digest, and remote frontier identity before use.
+- Emit content-addressed `kernelinfra.remote-observation.v1` receipts for
+  status/wait/cancel/frontier success or unknown transport state without
+  copying node-owned lifecycle authority.
+- Treat remote wait exit 3 as a valid nonterminal observation and preserve SSH,
+  daemon, and command failures as unknown rather than inventing run state.
+- Refuse observation output overwrite and reject malformed/tampered locators,
+  route receipts, catalog drift, remote bundle paths, run ids, and frontier
+  identities.
+
 ## 0.9.0 — 2026-08-25
 
 - Make `kernel_infra.__version__` the single package-version owner and derive

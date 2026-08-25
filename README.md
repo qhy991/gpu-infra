@@ -222,6 +222,17 @@ kernelctl fleet-submit \
   --require a800 \
   --route-out route.json \
   /path/to/task.json /path/to/candidate
+
+kernelctl fleet-status \
+  --catalog examples/fleet/catalog.json \
+  --route route.json
+kernelctl fleet-wait \
+  --catalog examples/fleet/catalog.json \
+  --route route.json \
+  --timeout 900
+kernelctl fleet-frontier \
+  --catalog examples/fleet/catalog.json \
+  --route route.json
 ```
 
 Nodes are probed in parallel. Eligibility combines checked static capabilities,
@@ -236,6 +247,11 @@ inbox, and submits through that node's daemon. The route receipt preserves every
 ok/unknown observation, decision, remote bundle/run identity, and
 `(node_id, run_id)` locator. SSH failure is unknown, never evidence of an idle
 node. See [the fleet guide](docs/fleet.md).
+
+Once submitted, locator operations remain pinned to that node. There is no
+automatic retry/failover: `fleet-status`, `fleet-wait`, `fleet-cancel`, and
+`fleet-frontier` emit content-addressed remote-observation receipts, and SSH or
+daemon failure is `unknown` rather than a fabricated lifecycle state.
 
 ## Evaluator contract
 

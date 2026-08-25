@@ -151,6 +151,17 @@ kernelctl fleet-submit \
   --require a800 \
   --route-out route.json \
   /path/to/task.json /path/to/candidate
+
+kernelctl fleet-status \
+  --catalog examples/fleet/catalog.json \
+  --route route.json
+kernelctl fleet-wait \
+  --catalog examples/fleet/catalog.json \
+  --route route.json \
+  --timeout 900
+kernelctl fleet-frontier \
+  --catalog examples/fleet/catalog.json \
+  --route route.json
 ```
 
 节点并行 probe；checked capability、ready deployment affinity、free disk 与 broker
@@ -162,6 +173,10 @@ digest drift，在目标 node-owned inbox 原子安装后通过该节点 daemon 
 receipt 保存所有 ok/unknown observation、选择理由、remote bundle/run 和
 `(node_id, run_id)` locator。SSH 失败只表示 unknown，绝不能解释成节点空闲。详见
 [fleet guide](docs/fleet.md)。
+
+run 接受后 locator 固定在原节点；不会自动 retry/failover。`fleet-status`、
+`fleet-wait`、`fleet-cancel` 与 `fleet-frontier` 都生成 content-addressed remote
+observation receipt；SSH/daemon 失败只表示 unknown，不会伪造生命周期状态。
 
 每次候选请求前后，adapter 都会复核 broker peer、独占 job/GPU、launch spec、
 executable/environment digest、健康 worker、service root，以及干净源码 checkout

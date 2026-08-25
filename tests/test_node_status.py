@@ -79,7 +79,7 @@ class NodeStatusTests(unittest.IsolatedAsyncioTestCase):
             ):
                 status = await server._node_status()
         self.assertEqual(status["schema"], "kernelinfra.node-status.v1")
-        self.assertEqual(status["kernelinfra_version"], "0.9.0")
+        self.assertEqual(status["kernelinfra_version"], "0.10.0")
         self.assertEqual(status["disk"]["free_bytes"], 900)
         self.assertEqual([item["run_id"] for item in status["active_runs"]], ["active-run"])
         self.assertEqual(status["ready_deployments"], ["service-ready"])

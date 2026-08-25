@@ -20,11 +20,15 @@ from .fleet import (
     ROUTE_SCHEMA,
     create_fleet_bundle,
     load_fleet_catalog,
+    parse_locator,
     probe_fleet,
     receive_fleet_bundle,
+    remote_kernelctl_json,
+    remote_observation_receipt,
     required_deployments,
     select_node,
     submit_bundle_to_node,
+    route_locator_from_receipt,
 )
 from .runner import RunManager
 from .server import KernelInfraServer
@@ -101,6 +105,29 @@ def _parser() -> argparse.ArgumentParser:
     fleet_receive.add_argument("--inbox", type=Path, required=True)
     fleet_receive.add_argument("--bundle-id", required=True)
     fleet_receive.add_argument("--label", required=True)
+
+    for name, help_text in (
+        ("fleet-status", "query one routed run on its owning node"),
+        ("fleet-wait", "wait for one routed run on its owning node"),
+        ("fleet-cancel", "cancel one routed run on its owning node"),
+    ):
+        remote = sub.add_parser(name, help=help_text)
+        remote.add_argument("--catalog", type=Path, required=True)
+        locator = remote.add_mutually_exclusive_group(required=True)
+        locator.add_argument("--locator")
+        locator.add_argument("--route", type=Path)
+        remote.add_argument("--out", type=Path)
+        remote.add_argument("--json", action="store_true")
+        if name == "fleet-wait":
+            remote.add_argument("--timeout", type=_nonnegative_float, default=300.0)
+
+    fleet_frontier = sub.add_parser(
+        "fleet-frontier", help="rebuild a routed task frontier on its owning node"
+    )
+    fleet_frontier.add_argument("--catalog", type=Path, required=True)
+    fleet_frontier.add_argument("--route", type=Path, required=True)
+    fleet_frontier.add_argument("--out", type=Path)
+    fleet_frontier.add_argument("--json", action="store_true")
 
     check = sub.add_parser("task-check", help="validate one task contract")
     check.add_argument("task", type=Path)
@@ -214,6 +241,10 @@ def main(argv: list[str] | None = None) -> int:
         return _fleet_submit(args)
     if args.command == "fleet-receive":
         return _fleet_receive(args)
+    if args.command in {"fleet-status", "fleet-wait", "fleet-cancel"}:
+        return _fleet_remote_run(args)
+    if args.command == "fleet-frontier":
+        return _fleet_frontier(args)
     if args.command == "task-check":
         return _task_check(args)
     if args.command == "service-attest":
@@ -545,6 +576,156 @@ def _fleet_receive(args: argparse.Namespace) -> int:
     }
     print(json.dumps(value, ensure_ascii=False))
     return 0
+
+
+def _fleet_target(args: argparse.Namespace, catalog):
+    if args.route is not None:
+        return route_locator_from_receipt(args.route, catalog)[:2]
+    return parse_locator(catalog, args.locator)
+
+
+def _fleet_remote_run(args: argparse.Namespace) -> int:
+    output = args.out.expanduser().resolve() if args.out is not None else None
+    if output is not None and output.exists():
+        print(f"kernelctl: refusing to overwrite observation: {output}", file=sys.stderr)
+        return 1
+    try:
+        catalog = load_fleet_catalog(args.catalog)
+        node, run_id = _fleet_target(args, catalog)
+    except (ContractError, ValueError) as exc:
+        print(f"kernelctl: {exc}", file=sys.stderr)
+        return 1
+    operation = args.command.removeprefix("fleet-")
+    response: Any = None
+    error: str | None = None
+    try:
+        if operation == "status":
+            value = remote_kernelctl_json(
+                node=node,
+                catalog=catalog,
+                arguments=["status", "--socket", node.socket, "--json", run_id],
+            )
+            if not isinstance(value, list) or len(value) != 1:
+                raise RuntimeError("remote status did not return one run")
+            response = value[0]
+        elif operation == "wait":
+            timeout = float(args.timeout)
+            response = remote_kernelctl_json(
+                node=node,
+                catalog=catalog,
+                arguments=[
+                    "wait",
+                    "--socket",
+                    node.socket,
+                    "--timeout",
+                    str(timeout),
+                    "--json",
+                    run_id,
+                ],
+                timeout_s=max(catalog.command_timeout_s, timeout + 15),
+                allowed_exit_codes=frozenset({0, 3}),
+            )
+        elif operation == "cancel":
+            response = remote_kernelctl_json(
+                node=node,
+                catalog=catalog,
+                arguments=["cancel", "--socket", node.socket, run_id],
+                expect_json=False,
+            )
+            response = {"cancelled": True, **response}
+        else:
+            raise AssertionError(operation)
+        if not isinstance(response, dict):
+            raise RuntimeError(f"remote {operation} returned a non-object")
+        if operation in {"status", "wait"} and response.get("run_id") != run_id:
+            raise RuntimeError(f"remote {operation} run id drift")
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+    observation = remote_observation_receipt(
+        catalog=catalog,
+        node=node,
+        run_id=run_id,
+        operation=operation,
+        response=response,
+        error=error,
+    )
+    if output is not None:
+        try:
+            _atomic_new_json(output, observation)
+        except OSError as exc:
+            print(f"kernelctl: cannot write observation: {exc}", file=sys.stderr)
+            return 1
+    if args.json:
+        print(json.dumps(observation, indent=2, ensure_ascii=False))
+    elif error is not None:
+        print(f"{node.node_id}:{run_id} status=unknown error={error}")
+    elif operation == "cancel":
+        print(f"{node.node_id}:{run_id} cancelled")
+    else:
+        print(f"{node.node_id}:{run_id} state={response.get('state', 'unknown')}")
+    if error is not None:
+        return 1
+    if operation == "wait" and response.get("state") not in TERMINAL_STATES:
+        return 3
+    return 0
+
+
+def _fleet_frontier(args: argparse.Namespace) -> int:
+    output = args.out.expanduser().resolve() if args.out is not None else None
+    if output is not None and output.exists():
+        print(f"kernelctl: refusing to overwrite observation: {output}", file=sys.stderr)
+        return 1
+    try:
+        catalog = load_fleet_catalog(args.catalog)
+        node, run_id, route = route_locator_from_receipt(args.route, catalog)
+        task_path = f"{route['remote']['bundle_dir']}/task.json"
+        frontier = remote_kernelctl_json(
+            node=node,
+            catalog=catalog,
+            arguments=[
+                "frontier",
+                "--socket",
+                node.socket,
+                "--task",
+                task_path,
+                "--json",
+            ],
+        )
+        if not isinstance(frontier, dict) or frontier.get("task_sha256") != route.get(
+            "task_sha256"
+        ):
+            raise RuntimeError("remote frontier task identity drift")
+        error = None
+    except Exception as exc:
+        if "catalog" not in locals() or "node" not in locals() or "run_id" not in locals():
+            print(f"kernelctl: {exc}", file=sys.stderr)
+            return 1
+        frontier = None
+        error = f"{type(exc).__name__}: {exc}"
+    observation = remote_observation_receipt(
+        catalog=catalog,
+        node=node,
+        run_id=run_id,
+        operation="frontier",
+        response=frontier,
+        error=error,
+    )
+    if output is not None:
+        try:
+            _atomic_new_json(output, observation)
+        except OSError as exc:
+            print(f"kernelctl: cannot write observation: {exc}", file=sys.stderr)
+            return 1
+    if args.json:
+        print(json.dumps(observation, indent=2, ensure_ascii=False))
+    elif error is not None:
+        print(f"{node.node_id}:{run_id} frontier=unknown error={error}")
+    else:
+        print(
+            f"{node.node_id}:{run_id} frontier={frontier.get('path')} "
+            f"cells={len(frontier.get('cells', {}))}"
+        )
+    return 0 if error is None else 1
 
 
 def _service_attest(args: argparse.Namespace) -> int:

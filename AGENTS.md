@@ -50,6 +50,9 @@
   decision, and locator. Node daemons remain owners of broker queues, runs,
   deployments, judge evidence, and frontiers. SSH/probe failure is unknown,
   never idle; route observations never guarantee allocation.
+- Once accepted, a fleet locator is pinned to its node. Status, wait, cancel,
+  and frontier must never retry or fail over that node-owned run elsewhere;
+  remote operation failure is an unknown observation, not a state transition.
 - Treat connection, broker, timeout, missing-result, and malformed-result
   failures as `unknown` validity and fail closed for frontier admission.
 

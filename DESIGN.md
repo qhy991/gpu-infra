@@ -1,4 +1,4 @@
-# Kernel Infra v0.9 design contract
+# Kernel Infra v0.10 design contract
 
 ## Goal
 
@@ -154,6 +154,12 @@ submitting agent.
 23. Fleet bundles are content-addressed by task/candidate digests, reject links,
     devices, traversal, duplicates, oversize, and drift, and install atomically
     into a node-owned inbox before ordinary submit.
+24. After acceptance, a `(node_id, run_id)` locator is immutable. Remote
+    status/wait/cancel/frontier operations target only that node and never
+    resubmit or fail over the run.
+25. Remote operation receipts bind catalog, locator, operation, response/error,
+    timestamp, and canonical digest. Transport failure is `unknown`; it cannot
+    change node-owned run state.
 
 ## Failure semantics
 
@@ -187,10 +193,13 @@ submitting agent.
   of success; preserve observations/error in route receipt when requested.
 - Remote bundle traversal, link/device, digest drift, unsafe catalog string, or
   relative task cwd: reject before target run acceptance.
+- Locator/catalog/route digest drift or remote status/frontier identity drift:
+  reject locally. SSH/daemon timeout after acceptance: write unknown observation
+  when requested; never claim terminal or dispatch another run.
 
 ## Deliberate exclusions
 
-v0.9 adds a trusted cross-host routing client over independently authoritative
+v0.10 adds a trusted cross-host routing/observation client over independently authoritative
 single-host services. It attests broker-issued launch and
 environment digests plus live broker/service/source custody. Files referenced by
 the admitted argv—dataset, model, image, config, and compatibility assets—remain
@@ -199,9 +208,9 @@ than inferred from path names. Fleet transport requires tasks with absolute
 remote judge cwd paths; it does not copy evaluator installations. Kernel Infra
 does not provide hostile tenant isolation, a global queue,
 priority/preemption, GPU memory quotas, automatic agent spawning, evaluator
-implementation, automatic campaign stop policy, or live-command resumption
-after daemon failure. Cross-host routing remains a future projection over
-independently authoritative node daemons.
+implementation, automatic reroute/failover after acceptance, or live-command
+resumption after daemon failure. Fleet remains a client-side projection over
+independently authoritative node daemons rather than a global scheduler.
 
 ## Acceptance evidence
 
@@ -237,3 +246,6 @@ independently authoritative node daemons.
 - Parallel fleet probe preserves ok/unknown nodes, capability/deployment
   filtering selects only eligible nodes, the remote bundle digest matches the
   local manifest, and the returned locator resolves to the node-owned run.
+- Fleet status/wait observations match the locator run, cancel targets that
+  exact node once, and frontier response matches the routed task digest; all
+  observation receipts recompute to their canonical hashes.

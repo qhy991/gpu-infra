@@ -12,6 +12,10 @@ kernelctl fleet-submit \
   --require a800 \
   --route-out route.json \
   /path/to/task.json /path/to/candidate
+kernelctl fleet-wait \
+  --catalog examples/fleet/catalog.json \
+  --route route.json \
+  --timeout 900
 ```
 
 The dispatcher observes but never owns remote queues. An SSH/daemon/probe

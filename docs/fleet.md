@@ -85,5 +85,30 @@ records catalog/task/candidate/bundle identities, requirements, every node
 observation, eligibility reasons, selected node observation, remote receive
 receipt, locator, status/error, and canonical route-receipt SHA-256.
 
-Fleet tasks currently must name absolute remote evaluator cwd paths. v0.9 moves
+Fleet tasks currently must name absolute remote evaluator cwd paths. v0.10 moves
 task/candidate input, not evaluator installations or arbitrary dependency trees.
+
+## Locator operations
+
+After `fleet-submit`, use either the printed `node_id:run_id` locator or the
+route receipt. Every operation remains pinned to that node:
+
+```bash
+kernelctl fleet-status --catalog catalog.json --route route.json --out status.json
+kernelctl fleet-wait --catalog catalog.json --route route.json --timeout 900 --out wait.json
+kernelctl fleet-cancel --catalog catalog.json --route route.json --out cancel.json
+kernelctl fleet-frontier --catalog catalog.json --route route.json --out frontier.json
+```
+
+`fleet-status` and `fleet-wait` validate that the remote response owns the exact
+run id. A timed wait may return a valid nonterminal observation. `fleet-cancel`
+targets the locator once; it never resubmits elsewhere. `fleet-frontier` accepts
+only a valid submitted route receipt, reconstructs the node-owned task path from
+the checked inbox/bundle id, and requires the remote frontier task digest to
+match the route.
+
+Each command optionally creates `kernelinfra.remote-observation.v1`, binding
+catalog digest, locator, operation, response/error, timestamp, and canonical
+SHA-256 without overwriting. SSH/daemon/command failure is `unknown`. Route or
+catalog tampering, remote bundle/run drift, and frontier identity drift are
+rejected before use.

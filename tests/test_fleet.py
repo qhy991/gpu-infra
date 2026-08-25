@@ -5,15 +5,20 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from kernel_infra.contracts import ContractError
+from kernel_infra.contracts import ContractError, digest_json
 from kernel_infra.fleet import (
     FleetCatalog,
     FleetNode,
     create_fleet_bundle,
     load_fleet_catalog,
+    load_route_receipt,
+    parse_locator,
     probe_node,
     receive_fleet_bundle,
+    remote_kernelctl_json,
+    remote_observation_receipt,
     select_node,
 )
 
@@ -152,6 +157,68 @@ class FleetCatalogTests(unittest.TestCase):
             min_free_bytes=1,
         )
         self.assertEqual(selected.node_id, "a")
+
+    def test_locator_route_and_remote_observation_are_content_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog = load_fleet_catalog(self.catalog(Path(directory)))
+            node, run_id = parse_locator(catalog, "b200:task-run-123")
+            self.assertEqual((node.node_id, run_id), ("b200", "task-run-123"))
+            with self.assertRaisesRegex(ContractError, "node_id:run_id"):
+                parse_locator(catalog, "bad")
+
+            content = {
+                "schema": "kernelinfra.route-receipt.v1",
+                "catalog_sha256": catalog.digest,
+                "status": "submitted",
+                "selected_node": "b200",
+                "bundle_id": "a" * 32,
+                "task_sha256": "t" * 64,
+                "locator": {"node_id": "b200", "run_id": "task-run-123"},
+                "remote": {
+                    "bundle_id": "a" * 32,
+                    "bundle_dir": "/srv/inbox/" + "a" * 32,
+                    "run": {"run_id": "task-run-123"},
+                },
+            }
+            route = {**content, "route_receipt_sha256": digest_json(content)}
+            path = Path(directory) / "route.json"
+            path.write_text(json.dumps(route))
+            self.assertEqual(load_route_receipt(path, catalog), route)
+            route["locator"]["run_id"] = "tampered"
+            path.write_text(json.dumps(route))
+            with self.assertRaisesRegex(ContractError, "digest"):
+                load_route_receipt(path, catalog)
+
+            observation = remote_observation_receipt(
+                catalog=catalog,
+                node=node,
+                run_id=run_id,
+                operation="status",
+                response={"run_id": run_id, "state": "running"},
+                error=None,
+            )
+            observed_content = dict(observation)
+            claimed = observed_content.pop("observation_sha256")
+            self.assertEqual(claimed, digest_json(observed_content))
+
+    def test_remote_wait_exit_three_is_an_observation_not_transport_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog = load_fleet_catalog(self.catalog(Path(directory)))
+            node = catalog.nodes[1]
+            completed = subprocess.CompletedProcess(
+                args=[],
+                returncode=3,
+                stdout=json.dumps({"run_id": "run", "state": "running"}),
+                stderr="",
+            )
+            with mock.patch("kernel_infra.fleet.subprocess.run", return_value=completed):
+                value = remote_kernelctl_json(
+                    node=node,
+                    catalog=catalog,
+                    arguments=["wait"],
+                    allowed_exit_codes=frozenset({0, 3}),
+                )
+            self.assertEqual(value["state"], "running")
 
 
 class FleetBundleTests(unittest.TestCase):

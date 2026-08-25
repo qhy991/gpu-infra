@@ -26,10 +26,12 @@ FLEET_SCHEMA = "kernelinfra.fleet.v1"
 BUNDLE_SCHEMA = "kernelinfra.fleet-bundle.v1"
 ROUTE_SCHEMA = "kernelinfra.route-receipt.v1"
 RECEIVE_SCHEMA = "kernelinfra.fleet-receive.v1"
+REMOTE_OBSERVATION_SCHEMA = "kernelinfra.remote-observation.v1"
 MAX_BUNDLE_BYTES = 256 * 1024 * 1024
 _ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,95}$")
 _SSH = re.compile(r"^[A-Za-z0-9_.@:-]+$")
 _REMOTE_PATH = re.compile(r"^/[A-Za-z0-9_./-]+$")
+_RUN_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,22 @@ class FleetSelectionError(RuntimeError):
     def __init__(self, message: str, decisions: list[dict[str, Any]]) -> None:
         super().__init__(message)
         self.decisions = decisions
+
+
+def fleet_node(catalog: FleetCatalog, node_id: str) -> FleetNode:
+    matches = [node for node in catalog.nodes if node.node_id == node_id]
+    if len(matches) != 1:
+        raise ContractError(f"fleet catalog has no unique node {node_id!r}")
+    return matches[0]
+
+
+def parse_locator(catalog: FleetCatalog, value: str) -> tuple[FleetNode, str]:
+    if not isinstance(value, str) or value.count(":") != 1:
+        raise ContractError("fleet locator must be node_id:run_id")
+    node_id, run_id = value.split(":", 1)
+    if not _ID.fullmatch(node_id) or not _RUN_ID.fullmatch(run_id):
+        raise ContractError("fleet locator contains an invalid node or run id")
+    return fleet_node(catalog, node_id), run_id
 
 
 def _positive(value: Any, where: str) -> float:
@@ -486,3 +504,110 @@ def submit_bundle_to_node(
     if not isinstance(response, dict) or response.get("schema") != RECEIVE_SCHEMA:
         raise RuntimeError(f"fleet receive returned invalid payload on {node.node_id}")
     return response
+
+
+def remote_kernelctl_json(
+    *,
+    node: FleetNode,
+    catalog: FleetCatalog,
+    arguments: list[str],
+    timeout_s: float | None = None,
+    expect_json: bool = True,
+    allowed_exit_codes: frozenset[int] = frozenset({0}),
+) -> Any:
+    command = shlex.join([node.kernelctl, *arguments])
+    limit = catalog.command_timeout_s if timeout_s is None else timeout_s
+    try:
+        completed = subprocess.run(
+            [*_ssh_base(node, catalog), command],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=limit,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(
+            f"remote operation failed for {node.node_id}: {exc}"
+        ) from exc
+    if completed.returncode not in allowed_exit_codes:
+        raise RuntimeError(
+            f"remote operation failed on {node.node_id} exit={completed.returncode}: "
+            f"{completed.stderr[-2000:].strip()}"
+        )
+    if not expect_json:
+        return {"exit_code": completed.returncode}
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"remote operation returned invalid JSON on {node.node_id}"
+        ) from exc
+
+
+def load_route_receipt(path: Path, catalog: FleetCatalog) -> dict[str, Any]:
+    source = path.expanduser().resolve()
+    try:
+        value = json.loads(source.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise ContractError(f"invalid route receipt {source}: {exc}") from exc
+    if not isinstance(value, dict) or value.get("schema") != ROUTE_SCHEMA:
+        raise ContractError("invalid route receipt schema")
+    content = dict(value)
+    claimed = content.pop("route_receipt_sha256", None)
+    if not isinstance(claimed, str) or digest_json(content) != claimed:
+        raise ContractError("route receipt digest disagrees with content")
+    if value.get("status") != "submitted" or not isinstance(
+        value.get("locator"), dict
+    ):
+        raise ContractError("route receipt does not own a submitted locator")
+    if value.get("catalog_sha256") != catalog.digest:
+        raise ContractError("route receipt catalog digest drift")
+    node_id = value["locator"].get("node_id")
+    run_id = value["locator"].get("run_id")
+    node, parsed_run = parse_locator(catalog, f"{node_id}:{run_id}")
+    if node.node_id != value.get("selected_node") or parsed_run != run_id:
+        raise ContractError("route receipt locator disagrees with selected node")
+    remote = value.get("remote")
+    if not isinstance(remote, dict):
+        raise ContractError("route receipt has no remote receive payload")
+    bundle_id = value.get("bundle_id")
+    expected_dir = f"{node.inbox.rstrip('/')}/{bundle_id}"
+    if remote.get("bundle_id") != bundle_id or remote.get("bundle_dir") != expected_dir:
+        raise ContractError("route receipt remote bundle path disagrees with catalog")
+    if not isinstance(remote.get("run"), dict) or remote["run"].get("run_id") != run_id:
+        raise ContractError("route receipt remote run disagrees with locator")
+    return value
+
+
+def route_locator_from_receipt(
+    path: Path, catalog: FleetCatalog
+) -> tuple[FleetNode, str, dict[str, Any]]:
+    receipt = load_route_receipt(path, catalog)
+    locator = receipt["locator"]
+    node, run_id = parse_locator(
+        catalog, f"{locator['node_id']}:{locator['run_id']}"
+    )
+    return node, run_id, receipt
+
+
+def remote_observation_receipt(
+    *,
+    catalog: FleetCatalog,
+    node: FleetNode,
+    run_id: str,
+    operation: str,
+    response: Any,
+    error: str | None,
+) -> dict[str, Any]:
+    value = {
+        "schema": REMOTE_OBSERVATION_SCHEMA,
+        "observed_at": utc_now(),
+        "catalog": str(catalog.source_path),
+        "catalog_sha256": catalog.digest,
+        "operation": operation,
+        "locator": {"node_id": node.node_id, "run_id": run_id},
+        "status": "ok" if error is None else "unknown",
+        "response": response,
+        "error": error,
+    }
+    return {**value, "observation_sha256": digest_json(value)}
