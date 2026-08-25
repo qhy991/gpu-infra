@@ -27,6 +27,8 @@ v0.3 canonical adapter 与第二 operator ABI 验收见
 [A800 RMSNorm 报告](docs/a800-rmsnorm-qualification-2026-08-25.md)。
 v0.3.1 manifest/config 镜像验收见
 [A800 image-contract 报告](docs/a800-image-contract-qualification-2026-08-25.md)。
+v0.4.0 evaluator integration 与双节点验收见
+[A800/B200 报告](docs/v0.4.0-a800-b200-qualification-2026-08-25.md)。
 FIBServe、KDA 和容器后端的合同与信任边界见
 [integration guide](docs/integrations.md)。
 
