@@ -1,4 +1,4 @@
-# Kernel Infra v0.8 design contract
+# Kernel Infra v0.9 design contract
 
 ## Goal
 
@@ -22,6 +22,8 @@ kernel validity, and performance-frontier decisions separate.
 7. **Result**: validated judge output; absence or malformation is an
    infrastructure error, never a failed correctness claim.
 8. **Frontier**: a rebuildable per-workload projection over eligible results.
+9. **Route receipt**: one catalog digest, parallel node observations,
+   eligibility/rank decision, content-addressed transport, and node/run locator.
 
 No separate campaign state, agent memory, or experiment database is required.
 Agents can submit several runs, and a task digest groups the comparable
@@ -41,6 +43,9 @@ set.
 | Correctness and raw timing | the named stage judge's result JSON |
 | Cross-run best per workload | derived `frontier.json` |
 | Docker/NVCC lifecycle policy | canonical `cuda_container` adapter |
+| Static node capability/transport paths | checked fleet catalog |
+| Routing observation and decision | client-side route receipt |
+| Remote queue/allocation/run/deployment/result | selected node daemon/broker |
 
 Kernel Infra never edits evaluator code, selects a winner from agent prose, or
 uses a live aggregate score as the factual timing owner.
@@ -69,6 +74,15 @@ Agent service-start
   -> kernel-infrad writes deployment.v2 and marks deployment ready
   -> many service-stage runs reuse that deployment without another GPU request
   -> service-stop or daemon lease loss cancels gpu-run and releases the GPU
+
+Agent fleet-submit
+  -> validate catalog + absolute-path task + immutable candidate snapshot
+  -> probe nodes in parallel; failures remain unknown
+  -> filter static capabilities, ready deployment affinity, disk, broker health
+  -> rank advisory snapshots deterministically
+  -> transfer content-addressed safe bundle over SSH
+  -> target daemon revalidates and submits through its local authority
+  -> return route receipt + (node_id, run_id), never a global run copy
 ```
 
 Multiple runs advance concurrently. CPU compilation uses a separate bounded
@@ -131,6 +145,15 @@ submitting agent.
 20. Optional idle grace advances only during a continuous zero-consumer window.
     Any accepted/queued/running consumer clears and resets the timer. Grace
     expiry stops through the ordinary guarded broker-client path.
+21. Fleet routing cannot allocate a GPU or mutate a remote queue directly. It
+    submits to exactly one eligible node daemon, whose broker makes the final
+    allocation decision after routing.
+22. A node probe is a timestamped observation, not a promise. SSH, daemon,
+    broker, or payload failure makes that node unknown/ineligible and remains
+    visible in the route receipt.
+23. Fleet bundles are content-addressed by task/candidate digests, reject links,
+    devices, traversal, duplicates, oversize, and drift, and install atomically
+    into a node-owned inbox before ordinary submit.
 
 ## Failure semantics
 
@@ -160,15 +183,21 @@ submitting agent.
 - Submit against a stopped/failed/interrupted managed deployment: reject before
   candidate snapshot. Stop with active consumers: reject without changing the
   deployment. Idle grace with a consumer: remain ready and reset the timer.
+- No eligible fleet node or selected-node transport failure: no fallback claim
+  of success; preserve observations/error in route receipt when requested.
+- Remote bundle traversal, link/device, digest drift, unsafe catalog string, or
+  relative task cwd: reject before target run acceptance.
 
 ## Deliberate exclusions
 
-v0.8 is a trusted single-host service. It attests broker-issued launch and
+v0.9 adds a trusted cross-host routing client over independently authoritative
+single-host services. It attests broker-issued launch and
 environment digests plus live broker/service/source custody. Files referenced by
 the admitted argv—dataset, model, image, config, and compatibility assets—remain
 task-owned identities and must be fingerprinted by the task/evaluator rather
-than inferred from path names. Kernel Infra does not provide hostile tenant
-isolation, a cross-host global scheduler,
+than inferred from path names. Fleet transport requires tasks with absolute
+remote judge cwd paths; it does not copy evaluator installations. Kernel Infra
+does not provide hostile tenant isolation, a global queue,
 priority/preemption, GPU memory quotas, automatic agent spawning, evaluator
 implementation, automatic campaign stop policy, or live-command resumption
 after daemon failure. Cross-host routing remains a future projection over
@@ -205,3 +234,6 @@ independently authoritative node daemons.
 - Active consumer status equals the set of nonterminal run ids referencing the
   deployment. A consumer prevents explicit and automatic stop; after all runs
   become terminal, configured idle grace releases the service GPU.
+- Parallel fleet probe preserves ok/unknown nodes, capability/deployment
+  filtering selects only eligible nodes, the remote bundle digest matches the
+  local manifest, and the returned locator resolves to the node-owned run.

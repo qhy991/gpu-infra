@@ -1,0 +1,89 @@
+# Cross-host fleet routing
+
+## Ownership
+
+The fleet client owns only:
+
+- checked static node catalog;
+- timestamped read-only node observations;
+- eligibility/rank decision;
+- immutable bundle transport;
+- route receipt and `(node_id, run_id)` locator.
+
+The selected node remains the sole owner of its daemon, broker queue/allocation,
+deployment history, run lifecycle, judge results, and frontier. There is no
+global run database or scheduler queue.
+
+## Node status
+
+Each node daemon serves `kernelinfra.node-status.v1` through its existing Unix
+socket. The projection includes KernelInfra/daemon identity, state-disk bytes,
+active runs, service states/consumer counts, ready deployment ids, and a bounded
+broker GPU/running/queue snapshot.
+
+```bash
+kernelctl node-status --socket /tmp/kernel-infra.sock --json
+```
+
+If SSH, daemon, broker, or JSON validation fails, fleet observation is
+`unknown`. Unknown nodes are ineligible; they are never treated as empty or
+idle.
+
+## Catalog
+
+`kernelinfra.fleet.v1` owns SSH aliases, installed kernelctl path, daemon socket,
+immutable inbox root, and static capabilities. Transport fields use a strict
+shell-safe subset and remote paths must be absolute.
+
+```bash
+kernelctl fleet-check /path/to/catalog.json
+kernelctl fleet-probe --catalog /path/to/catalog.json
+```
+
+Static capabilities are declarations, not live evidence. Use them to exclude
+incompatible hardware/toolchains; use node status only for current advisory
+load and deployment affinity.
+
+## Eligibility and rank
+
+A node is eligible only when:
+
+- probe status is ok;
+- all `--require` capabilities are present;
+- every managed deployment referenced by the task is ready on that node;
+- free state-disk space meets `--min-free-gb`;
+- broker probe has no error.
+
+Eligible nodes rank by fewer queued jobs, more idle GPUs, fewer active runs, and
+lexicographic node id. This is deterministic routing over a snapshot, not an
+allocation promise. The remote broker may queue the submitted run immediately
+after routing.
+
+## Bundle transport
+
+The client validates the task, requires absolute judge cwd paths, snapshots the
+candidate, and creates `kernelinfra.fleet-bundle.v1`. Its bundle id is derived
+from exact task and candidate digests.
+
+The hidden node-side `fleet-receive` path reads tar from stdin and rejects:
+
+- absolute paths or `..` traversal;
+- duplicate members;
+- symlink, hardlink, device, FIFO, or other non-file members;
+- unexpected roots;
+- extracted content above 256 MiB;
+- missing task/candidate/manifest;
+- task, candidate, manifest, or content-address drift.
+
+A valid bundle installs atomically under `<inbox>/<bundle-id>/`. Repeated exact
+content reuses the immutable directory but creates a new node-owned run.
+
+## Route receipt
+
+`--route-out` creates `kernelinfra.route-receipt.v1` without overwriting. It
+records catalog/task/candidate/bundle identities, requirements, every node
+observation, eligibility reasons, selected node observation, remote receive
+receipt, locator, status/error, and canonical route-receipt SHA-256.
+
+Fleet tasks currently must name absolute remote evaluator cwd paths. v0.9 moves
+task/candidate input, not evaluator installations or arbitrary dependency trees.

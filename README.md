@@ -207,6 +207,34 @@ zero consumers automatically release the GPU after a continuous grace window.
 Any new consumer clears and resets that timer. The count is derived from run
 states and is never stored as independent authority.
 
+## Cross-host routing
+
+`fleet-submit` routes one immutable task/candidate bundle without creating a
+global queue or copying node-owned result state:
+
+```bash
+kernelctl fleet-check examples/fleet/catalog.json
+kernelctl fleet-probe --catalog examples/fleet/catalog.json
+kernelctl fleet-submit \
+  --catalog examples/fleet/catalog.json \
+  --require a800 \
+  --route-out route.json \
+  /path/to/task.json /path/to/candidate
+```
+
+Nodes are probed in parallel. Eligibility combines checked static capabilities,
+ready deployment affinity, minimum free disk, and healthy broker probes;
+ranking uses observed queue length, idle cards, and active runs with node id as
+a deterministic tie-break. The selected node's broker still decides whether
+and when a GPU is allocated.
+
+Transport snapshots the candidate, addresses the bundle by task/candidate
+digests, rejects unsafe tar members, installs it in the node-owned immutable
+inbox, and submits through that node's daemon. The route receipt preserves every
+ok/unknown observation, decision, remote bundle/run identity, and
+`(node_id, run_id)` locator. SSH failure is unknown, never evidence of an idle
+node. See [the fleet guide](docs/fleet.md).
+
 ## Evaluator contract
 
 Every stage command receives these explicit environment variables through the
@@ -232,4 +260,4 @@ python3 -m unittest discover -s tests -v
 ```
 
 `.github/workflows/ci.yml` runs the same contract suite and checked-task
-validation on Python 3.10, 3.11, and 3.12.
+and service/fleet validation on Python 3.10, 3.11, and 3.12.

@@ -136,6 +136,31 @@ consumer run ids/count；只要仍有非终态 consumer，`service-stop` 就会�
 spec 可设置 `idle_grace_s`，仅当 consumer 持续为零时自动释放 GPU；新 consumer 会
 清除并重置计时。consumer projection 始终从 run state 推导，不单独保存可变计数。
 
+## 跨主机路由
+
+`fleet-submit` 可把一个 immutable task/candidate bundle 路由到 A800/B200，而不建立
+全局 queue 或复制节点 result state：
+
+```bash
+kernelctl fleet-check examples/fleet/catalog.json
+kernelctl fleet-probe --catalog examples/fleet/catalog.json
+kernelctl fleet-submit \
+  --catalog examples/fleet/catalog.json \
+  --require a800 \
+  --route-out route.json \
+  /path/to/task.json /path/to/candidate
+```
+
+节点并行 probe；checked capability、ready deployment affinity、free disk 与 broker
+health 决定 eligibility，queue 长度、idle GPU、active run 与 node id 形成确定性排序。
+这只是 routing observation，最终 GPU allocation 仍由目标节点 broker 决定。
+
+bundle 按 task/candidate digest 内容寻址，拒绝 traversal、symlink/device、oversize 与
+digest drift，在目标 node-owned inbox 原子安装后通过该节点 daemon submit。route
+receipt 保存所有 ok/unknown observation、选择理由、remote bundle/run 和
+`(node_id, run_id)` locator。SSH 失败只表示 unknown，绝不能解释成节点空闲。详见
+[fleet guide](docs/fleet.md)。
+
 每次候选请求前后，adapter 都会复核 broker peer、独占 job/GPU、launch spec、
 executable/environment digest、健康 worker、service root，以及干净源码 checkout
 的 commit/tree。`service-attest` 仍可导入外部手工启动的 broker-held service。
@@ -193,4 +218,4 @@ python3 -m unittest discover -s tests -v
 ```
 
 `.github/workflows/ci.yml` 会在 Python 3.10、3.11、3.12 上运行同一套合同测试
-与 checked-task 校验。
+与 checked task/service/fleet 校验。

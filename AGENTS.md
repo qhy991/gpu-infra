@@ -46,6 +46,10 @@
   explicit deployment reference. Never persist an independently mutable
   reference count. Reject stop with active consumers; idle grace begins only at
   zero and resets whenever a consumer appears.
+- Fleet routing owns only catalog facts, probe observations, transport, route
+  decision, and locator. Node daemons remain owners of broker queues, runs,
+  deployments, judge evidence, and frontiers. SSH/probe failure is unknown,
+  never idle; route observations never guarantee allocation.
 - Treat connection, broker, timeout, missing-result, and malformed-result
   failures as `unknown` validity and fail closed for frontier admission.
 

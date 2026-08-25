@@ -13,14 +13,26 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .contracts import ContractError, load_task
+from .contracts import ContractError, digest_json, load_task
+from .fleet import (
+    FleetSelectionError,
+    RECEIVE_SCHEMA,
+    ROUTE_SCHEMA,
+    create_fleet_bundle,
+    load_fleet_catalog,
+    probe_fleet,
+    receive_fleet_bundle,
+    required_deployments,
+    select_node,
+    submit_bundle_to_node,
+)
 from .runner import RunManager
 from .server import KernelInfraServer
 from .service_attestation import atomic_json, build_service_receipt
 from .service_contracts import load_service_spec
 from .service_store import SERVICE_TERMINAL_STATES, ServiceStore
 from .services import ServiceManager
-from .store import RunStore, TERMINAL_STATES
+from .store import RunStore, TERMINAL_STATES, utc_now
 
 DEFAULT_SOCKET = Path("/tmp/kernel-infra.sock")
 DEFAULT_BROKER_SOCKET = Path("/tmp/agent-gpu-broker.sock")
@@ -37,6 +49,16 @@ def _positive_int(value: str) -> int:
     return result
 
 
+def _nonnegative_float(value: str) -> float:
+    try:
+        result = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid number: {value}") from exc
+    if result < 0:
+        raise argparse.ArgumentTypeError("value must be non-negative")
+    return result
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="kernelctl")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -47,6 +69,38 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--broker-socket", type=Path, default=DEFAULT_BROKER_SOCKET)
     serve.add_argument("--gpu-run", type=Path, default=Path("gpu-run"))
     serve.add_argument("--local-capacity", type=_positive_int, default=2)
+
+    node_status = sub.add_parser("node-status", help="show one node capability state")
+    _client_socket(node_status)
+    node_status.add_argument("--json", action="store_true")
+
+    fleet_check = sub.add_parser(
+        "fleet-check", help="validate one cross-host node catalog"
+    )
+    fleet_check.add_argument("catalog", type=Path)
+
+    fleet_probe = sub.add_parser(
+        "fleet-probe", help="probe all catalog nodes without changing them"
+    )
+    fleet_probe.add_argument("--catalog", type=Path, required=True)
+
+    fleet_submit = sub.add_parser(
+        "fleet-submit", help="route and submit one immutable task/candidate bundle"
+    )
+    fleet_submit.add_argument("--catalog", type=Path, required=True)
+    fleet_submit.add_argument("--require", action="append", default=[])
+    fleet_submit.add_argument("--min-free-gb", type=_nonnegative_float, default=1.0)
+    fleet_submit.add_argument("--label")
+    fleet_submit.add_argument("--route-out", type=Path)
+    fleet_submit.add_argument("--json", action="store_true")
+    fleet_submit.add_argument("task", type=Path)
+    fleet_submit.add_argument("candidate", type=Path)
+
+    fleet_receive = sub.add_parser("fleet-receive", help=argparse.SUPPRESS)
+    _client_socket(fleet_receive)
+    fleet_receive.add_argument("--inbox", type=Path, required=True)
+    fleet_receive.add_argument("--bundle-id", required=True)
+    fleet_receive.add_argument("--label", required=True)
 
     check = sub.add_parser("task-check", help="validate one task contract")
     check.add_argument("task", type=Path)
@@ -150,6 +204,16 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "serve":
         return asyncio.run(_serve(args))
+    if args.command == "node-status":
+        return _node_status(args)
+    if args.command == "fleet-check":
+        return _fleet_check(args)
+    if args.command == "fleet-probe":
+        return _fleet_probe(args)
+    if args.command == "fleet-submit":
+        return _fleet_submit(args)
+    if args.command == "fleet-receive":
+        return _fleet_receive(args)
     if args.command == "task-check":
         return _task_check(args)
     if args.command == "service-attest":
@@ -261,6 +325,225 @@ def _task_check(args: argparse.Namespace) -> int:
             ensure_ascii=False,
         )
     )
+    return 0
+
+
+def _node_status(args: argparse.Namespace) -> int:
+    response = _request(args.socket, {"op": "node_status"})
+    if response is None:
+        return 1
+    node = response["node"]
+    if args.json:
+        print(json.dumps(node, indent=2, ensure_ascii=False))
+        return 0
+    broker = node["broker"]
+    idle = sum(1 for gpu in broker["gpus"] if gpu.get("state") == "idle")
+    print(
+        f"NODE version={node['kernelinfra_version']} "
+        f"instance={node['daemon_instance_id']} "
+        f"broker={broker.get('broker_version')} "
+        f"idle_gpus={idle}/{len(broker['gpus'])} "
+        f"queue={len(broker['queue'])} active_runs={len(node['active_runs'])} "
+        f"ready_services={len(node['ready_deployments'])}"
+    )
+    return 0
+
+
+def _fleet_check(args: argparse.Namespace) -> int:
+    try:
+        catalog = load_fleet_catalog(args.catalog)
+    except ContractError as exc:
+        print(f"kernelctl: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "schema": "kernelinfra.fleet-check.v1",
+                "catalog_sha256": catalog.digest,
+                "nodes": [
+                    {
+                        "id": node.node_id,
+                        "ssh": node.ssh_host,
+                        "capabilities": sorted(node.capabilities),
+                    }
+                    for node in catalog.nodes
+                ],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+def _fleet_probe(args: argparse.Namespace) -> int:
+    try:
+        catalog = load_fleet_catalog(args.catalog)
+    except ContractError as exc:
+        print(f"kernelctl: {exc}", file=sys.stderr)
+        return 2
+    value = {
+        "schema": "kernelinfra.fleet-probe.v1",
+        "observed_at": utc_now(),
+        "catalog": str(catalog.source_path),
+        "catalog_sha256": catalog.digest,
+        "observations": probe_fleet(catalog),
+    }
+    print(json.dumps(value, indent=2, ensure_ascii=False))
+    return 0 if any(item["status"] == "ok" for item in value["observations"]) else 1
+
+
+def _fleet_submit(args: argparse.Namespace) -> int:
+    route_output = args.route_out.expanduser().resolve() if args.route_out else None
+    if route_output is not None and route_output.exists():
+        print(
+            f"kernelctl: refusing to overwrite route receipt: {route_output}",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        catalog = load_fleet_catalog(args.catalog)
+        with tempfile.TemporaryDirectory(prefix="kernelinfra-fleet-") as directory:
+            task, manifest, archive = create_fleet_bundle(
+                task_path=args.task,
+                candidate=args.candidate,
+                workspace=Path(directory),
+            )
+            observations = probe_fleet(catalog)
+            required = set(args.require)
+            deployments = required_deployments(task)
+            label = (args.label or args.candidate.name or task.task_id).strip()
+            if not label:
+                raise ValueError("fleet submission label must not be empty")
+            common = {
+                "schema": ROUTE_SCHEMA,
+                "routed_at": utc_now(),
+                "catalog": str(catalog.source_path),
+                "catalog_sha256": catalog.digest,
+                "bundle_id": manifest["bundle_id"],
+                "task_id": task.task_id,
+                "task_sha256": manifest["task_sha256"],
+                "candidate_sha256": manifest["candidate_sha256"],
+                "required_capabilities": sorted(required),
+                "required_deployments": sorted(deployments),
+                "min_free_bytes": int(args.min_free_gb * 1024**3),
+                "observations": observations,
+            }
+            try:
+                node, selected_observation, decisions = select_node(
+                    catalog=catalog,
+                    observations=observations,
+                    required_capabilities=required,
+                    required_deployments=deployments,
+                    min_free_bytes=int(args.min_free_gb * 1024**3),
+                )
+            except FleetSelectionError as exc:
+                receipt = {
+                    **common,
+                    "decisions": exc.decisions,
+                    "selected_node": None,
+                    "selected_observation": None,
+                    "status": "failed",
+                    "locator": None,
+                    "remote": None,
+                    "error": str(exc),
+                }
+                receipt = {
+                    **receipt,
+                    "route_receipt_sha256": digest_json(receipt),
+                }
+                if route_output is not None:
+                    _atomic_new_json(route_output, receipt)
+                print(f"kernelctl: {receipt['error']}", file=sys.stderr)
+                return 1
+            base = {
+                **common,
+                "decisions": decisions,
+                "selected_node": node.node_id,
+                "selected_observation": selected_observation,
+            }
+            try:
+                remote = submit_bundle_to_node(
+                    node=node,
+                    catalog=catalog,
+                    archive_path=archive,
+                    bundle_id=manifest["bundle_id"],
+                    label=label,
+                )
+            except Exception as exc:
+                receipt = {
+                    **base,
+                    "status": "failed",
+                    "locator": None,
+                    "remote": None,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                receipt = {
+                    **receipt,
+                    "route_receipt_sha256": digest_json(receipt),
+                }
+                if route_output is not None:
+                    _atomic_new_json(route_output, receipt)
+                print(f"kernelctl: {receipt['error']}", file=sys.stderr)
+                return 1
+            locator = {
+                "node_id": node.node_id,
+                "run_id": remote["run"]["run_id"],
+            }
+            receipt = {
+                **base,
+                "status": "submitted",
+                "locator": locator,
+                "remote": remote,
+                "error": None,
+            }
+            receipt = {
+                **receipt,
+                "route_receipt_sha256": digest_json(receipt),
+            }
+            if route_output is not None:
+                _atomic_new_json(route_output, receipt)
+            if args.json:
+                print(json.dumps(receipt, indent=2, ensure_ascii=False))
+            else:
+                print(f"{locator['node_id']}:{locator['run_id']}")
+            return 0
+    except (ContractError, OSError, RuntimeError, ValueError) as exc:
+        print(f"kernelctl: {exc}", file=sys.stderr)
+        return 1
+
+
+def _fleet_receive(args: argparse.Namespace) -> int:
+    try:
+        directory, manifest, reused = receive_fleet_bundle(
+            stream=sys.stdin.buffer,
+            inbox=args.inbox,
+            expected_bundle_id=args.bundle_id,
+        )
+    except Exception as exc:
+        print(f"kernelctl: cannot receive fleet bundle: {exc}", file=sys.stderr)
+        return 1
+    response = _request(
+        args.socket,
+        {
+            "op": "submit",
+            "task": str(directory / "task.json"),
+            "candidate": str(directory / "candidate"),
+            "label": args.label,
+        },
+    )
+    if response is None:
+        return 1
+    value = {
+        "schema": RECEIVE_SCHEMA,
+        "bundle_id": manifest["bundle_id"],
+        "bundle_dir": str(directory),
+        "reused": reused,
+        "task_sha256": manifest["task_sha256"],
+        "candidate_sha256": manifest["candidate_sha256"],
+        "run": response["run"],
+    }
+    print(json.dumps(value, ensure_ascii=False))
     return 0
 
 

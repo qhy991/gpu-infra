@@ -4,15 +4,29 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import shutil
 import stat
 from pathlib import Path
 from typing import Any
 
 from .candidate import validate_candidate
+from . import __version__
 from .contracts import ContractError, load_task
 from .frontier import rebuild_frontier
 from .runner import RunManager
 from .services import ServiceManager
+from .service_attestation import query_broker
+from .store import TERMINAL_STATES, utc_now
+
+
+def _daemon_instance_id() -> str:
+    start = "unknown"
+    try:
+        start = Path("/proc/self/stat").read_text().split()[21]
+    except (OSError, IndexError):
+        pass
+    return f"{os.uname().nodename}-pid{os.getpid()}-start{start}"
 
 
 class KernelInfraServer:
@@ -25,6 +39,7 @@ class KernelInfraServer:
         self.manager = manager
         self.services = services
         self.socket_path = socket_path.expanduser().resolve()
+        self.instance_id = _daemon_instance_id()
         self._server: asyncio.AbstractServer | None = None
 
     async def start(self) -> int:
@@ -196,4 +211,63 @@ class KernelInfraServer:
                 binding_path=Path(request["binding_output"]),
             )
             return {"ok": True, "task": task, "binding": binding}
+        if operation == "node_status":
+            return {"ok": True, "node": await self._node_status()}
         raise ValueError(f"unknown operation: {operation!r}")
+
+    async def _node_status(self) -> dict[str, Any]:
+        broker = await asyncio.to_thread(query_broker, self.manager.broker_socket)
+        disk = shutil.disk_usage(self.manager.store.root)
+        active_runs = [
+            state
+            for state in self.manager.store.list_states()
+            if state.get("state") not in TERMINAL_STATES
+        ]
+        service_states = self.services.list_statuses()
+        return {
+            "schema": "kernelinfra.node-status.v1",
+            "observed_at": utc_now(),
+            "kernelinfra_version": __version__,
+            "daemon_instance_id": self.instance_id,
+            "state_root": str(self.manager.store.root),
+            "disk": {
+                "total_bytes": disk.total,
+                "used_bytes": disk.used,
+                "free_bytes": disk.free,
+            },
+            "active_runs": [
+                {
+                    "run_id": state["run_id"],
+                    "task_id": state["task_id"],
+                    "state": state["state"],
+                    "service_deployment_ids": state.get(
+                        "service_deployment_ids", []
+                    ),
+                }
+                for state in active_runs
+            ],
+            "services": [
+                {
+                    "deployment_id": state["deployment_id"],
+                    "service_id": state["service_id"],
+                    "state": state["state"],
+                    "active_consumer_count": state["active_consumer_count"],
+                }
+                for state in service_states
+            ],
+            "ready_deployments": [
+                state["deployment_id"]
+                for state in service_states
+                if state["state"] == "ready"
+            ],
+            "broker": {
+                "version": broker.get("version"),
+                "broker_version": broker.get("broker_version"),
+                "instance_id": broker.get("instance_id"),
+                "probe_error": broker.get("probe_error"),
+                "shared_capacity": broker.get("shared_capacity"),
+                "gpus": broker.get("gpus", []),
+                "running": broker.get("running", []),
+                "queue": broker.get("queue", []),
+            },
+        }

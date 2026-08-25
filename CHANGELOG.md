@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.0 — 2026-08-25
+
+- Make `kernel_infra.__version__` the single package-version owner and derive
+  package metadata from it.
+- Add read-only `node-status` with daemon/broker identity, GPU/queue projection,
+  active runs, ready deployments, and state-disk capacity.
+- Add strict `kernelinfra.fleet.v1` catalogs and parallel SSH probing; failed or
+  timed-out probes are `unknown` and never treated as idle.
+- Add deterministic capability/deployment/disk eligibility and queue/idle/run
+  ranking while keeping the target broker authoritative for final allocation.
+- Add content-addressed task/candidate tar transport, safe node-side extraction,
+  immutable inbox reuse, remote submit, `(node_id, run_id)` locators, and
+  `kernelinfra.route-receipt.v1` evidence.
+- Reject traversal, links/devices, oversized archives, content drift, unsafe
+  catalog transport strings, and fleet tasks with relative judge cwd paths.
+
 ## 0.8.0 — 2026-08-25
 
 - Add an explicit managed `service_deployment` reference to materialized service
