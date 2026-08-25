@@ -21,6 +21,8 @@ acceptance records are [the initial A800 pilot](docs/a800-pilot-2026-08-24.md)
 and the [GitHub-release A800 qualification](docs/github-release-a800-2026-08-24.md).
 The first exact-commit custom-CUDA qualification is
 [the A800 NVCC/container report](docs/a800-real-cuda-qualification-2026-08-25.md).
+The v0.2 CPU/GPU pipeline qualification is
+[the bounded-local compilation report](docs/a800-bounded-local-compile-2026-08-25.md).
 
 ## Quick start
 
