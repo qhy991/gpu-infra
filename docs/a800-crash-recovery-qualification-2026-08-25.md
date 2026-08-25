@@ -96,6 +96,15 @@ removed the active job before reconciliation. The run was then archived
   missing job.
 - An interrupted run remains non-promotable and is never automatically retried.
 
+## Post-release normal-path control
+
+After the crash tests, the exact v0.2.1 production control ran basic candidate
+`a800-cuda-vector-add-a3d1f2cf45b5` through the ordinary four-stage path.
+Compile, exact correctness, memcheck, racecheck, and balanced AB/BA benchmark all
+passed; both workloads were stable and frontier-eligible. No labeled container
+remained, and the broker returned to GPU1 idle with an empty queue. This rules
+out a cleanup implementation that succeeds only by breaking normal execution.
+
 ## Live state after qualification
 
 The exact crash-test release root is
