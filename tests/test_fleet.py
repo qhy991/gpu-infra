@@ -475,6 +475,18 @@ class FleetSnapshotTests(unittest.TestCase):
             with self.assertRaisesRegex(ContractError, "historical catalog"):
                 load_fleet_endpoints(path, catalog)
 
+            value["nodes"][0]["id"] = "b200"
+            value["nodes"][0]["ssh"] = "host;touch"
+            path.write_text(json.dumps(value))
+            with self.assertRaisesRegex(ContractError, "unsafe"):
+                load_fleet_endpoints(path, catalog)
+
+            value["nodes"][0]["ssh"] = "b200-upgraded"
+            value["nodes"].append(dict(value["nodes"][0]))
+            path.write_text(json.dumps(value))
+            with self.assertRaisesRegex(ContractError, "unique"):
+                load_fleet_endpoints(path, catalog)
+
     def test_snapshot_uses_current_endpoint_but_historical_route_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
