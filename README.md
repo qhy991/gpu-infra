@@ -15,7 +15,7 @@ The first release deliberately reuses existing owners:
 - Kernel Infra snapshots inputs, drives staged judges, persists receipts, and
   derives the per-workload frontier.
 
-See [DESIGN.md](DESIGN.md) for the frozen v0.4 contract and
+See [DESIGN.md](DESIGN.md) for the frozen v0.5 contract and
 [README.zh-CN.md](README.zh-CN.md) for the Chinese guide. The first real-node
 acceptance records are [the initial A800 pilot](docs/a800-pilot-2026-08-24.md)
 and the [GitHub-release A800 qualification](docs/github-release-a800-2026-08-24.md).
@@ -110,15 +110,16 @@ for the live exclusive broker job before accepting requests:
 ```bash
 bin/kernelctl service-attest \
   --broker-job-id gpuq-<job> \
+  --broker-admission-receipt /path/to/gpuq-admission.json \
   --service-url http://127.0.0.1:10000 \
-  --service-identity 'PTXBench@<commit>+FIBServe@<commit>+dataset@<digest>' \
+  --service-identity 'PTXBench@<commit>+FIBServe@<commit>+dataset@<digest>+admission@sha256:<launch-spec>+executable@sha256:<executable>' \
   --source-root /path/to/PTXBench \
   --out examples/fibserve_service/deployment.json
 ```
 
 `kernelinfra-fibserve` verifies the broker peer, exclusive job/GPU, healthy
-workers, service root, and clean source commit/tree both before and after each
-request. The checked task template is in
+workers, broker-issued launch/executable/environment digests, service root, and
+clean source commit/tree both before and after each request. The checked task template is in
 [`examples/fibserve_service/`](examples/fibserve_service/).
 
 ## KDA authoritative evidence

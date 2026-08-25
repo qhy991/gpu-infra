@@ -33,6 +33,38 @@ ROOT = {
     "commit": "491860bd3e587eda230ab426b086f31b2da4aa12",
 }
 HEALTH = {"status": "ok", "queue_size": 0, "workers": [{"healthy": True}]}
+PEER = {"pid": 123, "uid": 1000, "gid": 1000}
+ADMISSION_CONTENT = {
+    "schema": service_attestation.BROKER_ADMISSION_SCHEMA,
+    "job_id": "gpuq-service",
+    "broker_version": "0.5.3",
+    "broker_instance_id": "node-pid1-start1",
+    "submitted_at": "2026-08-25T00:00:00+00:00",
+    "started_at": "2026-08-25T00:00:01+00:00",
+    "owner": "judge",
+    "label": "fibserve-test",
+    "mode": "exclusive",
+    "gpu_count": 1,
+    "gpu_ids": [1],
+    "cwd": "/srv/fibserve",
+    "argv_count": 2,
+    "argv_sha256": "a" * 64,
+    "env_keys": ["SERVICE_PORT"],
+    "env_sha256": "b" * 64,
+    "launch_spec_sha256": "c" * 64,
+    "resolved_executable": "/srv/fibserve/start.sh",
+    "executable_sha256": "d" * 64,
+    "effective_env_sha256": "e" * 64,
+}
+ADMISSION = {
+    **ADMISSION_CONTENT,
+    "receipt_sha256": service_attestation._digest_json(ADMISSION_CONTENT),
+}
+SERVICE_IDENTITY = (
+    "PTXBench@491860bd3e587eda230ab426b086f31b2da4aa12"
+    f"+admission@sha256:{ADMISSION['launch_spec_sha256']}"
+    f"+executable@sha256:{ADMISSION['executable_sha256']}"
+)
 
 
 class ServiceAttestationTests(unittest.TestCase):
@@ -43,6 +75,14 @@ class ServiceAttestationTests(unittest.TestCase):
 
         with mock.patch.object(
             service_attestation, "query_broker", return_value=SNAPSHOT
+        ), mock.patch.object(
+            service_attestation,
+            "query_broker_admission",
+            return_value=(ADMISSION, PEER),
+        ), mock.patch.object(
+            service_attestation,
+            "load_broker_admission_receipt",
+            return_value=ADMISSION,
         ), mock.patch.object(
             service_attestation,
             "_git_source_identity",
@@ -56,10 +96,9 @@ class ServiceAttestationTests(unittest.TestCase):
             receipt = service_attestation.build_service_receipt(
                 broker_socket=Path("/tmp/gpuq.sock"),
                 broker_job_id="gpuq-service",
+                broker_admission_receipt=Path("/tmp/admission.json"),
                 service_url="http://127.0.0.1:10000",
-                service_identity=(
-                    "PTXBench@491860bd3e587eda230ab426b086f31b2da4aa12"
-                ),
+                service_identity=SERVICE_IDENTITY,
                 source_root=Path("/srv/fibserve"),
             )
             verified = service_attestation.verify_service_receipt(receipt)
@@ -75,6 +114,7 @@ class ServiceAttestationTests(unittest.TestCase):
                 service_attestation.build_service_receipt(
                     broker_socket=Path("/tmp/gpuq.sock"),
                     broker_job_id="gpuq-service",
+                    broker_admission_receipt=Path("/tmp/admission.json"),
                     service_url="http://127.0.0.1:10000",
                     service_identity="PTXBench@commit",
                     source_root=Path("/srv/fibserve"),
@@ -90,6 +130,7 @@ class ServiceAttestationTests(unittest.TestCase):
                 service_attestation.build_service_receipt(
                     broker_socket=Path("/tmp/gpuq.sock"),
                     broker_job_id="gpuq-service",
+                    broker_admission_receipt=Path("/tmp/admission.json"),
                     service_url="http://127.0.0.1:10000",
                     service_identity="PTXBench@commit",
                     source_root=Path("/srv/fibserve"),
@@ -105,6 +146,7 @@ class ServiceAttestationTests(unittest.TestCase):
                 "service_identity": "PTXBench@commit",
                 "service_root": {"commit": "commit"},
                 "service_health": HEALTH,
+                "broker_admission_receipt": ADMISSION,
                 "source_root": "/srv/fibserve",
                 "source_commit": "commit",
                 "source_tree": "tree",
@@ -149,10 +191,72 @@ class ServiceAttestationTests(unittest.TestCase):
         self.assertEqual(result["validity"], "valid")
         self.assertEqual(result["artifacts"]["broker_job_id"], "gpuq-service")
         self.assertIn("deployment_receipt_sha256", result["fingerprints"])
+        self.assertEqual(
+            result["fingerprints"]["broker_launch_spec_sha256"],
+            ADMISSION["launch_spec_sha256"],
+        )
+        self.assertEqual(
+            result["fingerprints"]["broker_executable_sha256"],
+            ADMISSION["executable_sha256"],
+        )
 
     def test_only_loopback_service_urls_are_allowed(self):
         with self.assertRaisesRegex(ValueError, "loopback"):
             service_attestation._normalize_loopback_url("http://example.com:10000")
+
+    def test_saved_admission_must_match_live_broker_and_service_identity(self):
+        source = {
+            "source_root": "/srv/fibserve",
+            "source_commit": "491860bd3e587eda230ab426b086f31b2da4aa12",
+            "source_tree": "tree-1",
+            "source_dirty": False,
+        }
+        changed = {**ADMISSION, "label": "tampered"}
+        with mock.patch.object(
+            service_attestation, "query_broker", return_value=SNAPSHOT
+        ), mock.patch.object(
+            service_attestation,
+            "query_broker_admission",
+            return_value=(ADMISSION, PEER),
+        ), mock.patch.object(
+            service_attestation,
+            "load_broker_admission_receipt",
+            return_value=changed,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "differs from live broker"):
+                service_attestation.build_service_receipt(
+                    broker_socket=Path("/tmp/gpuq.sock"),
+                    broker_job_id="gpuq-service",
+                    broker_admission_receipt=Path("/tmp/admission.json"),
+                    service_url="http://127.0.0.1:10000",
+                    service_identity=SERVICE_IDENTITY,
+                    source_root=Path("/srv/fibserve"),
+                )
+
+        with mock.patch.object(
+            service_attestation, "query_broker", return_value=SNAPSHOT
+        ), mock.patch.object(
+            service_attestation,
+            "query_broker_admission",
+            return_value=(ADMISSION, PEER),
+        ), mock.patch.object(
+            service_attestation,
+            "load_broker_admission_receipt",
+            return_value=ADMISSION,
+        ), mock.patch.object(
+            service_attestation, "_git_source_identity", return_value=source
+        ):
+            with self.assertRaisesRegex(RuntimeError, "does not bind"):
+                service_attestation.build_service_receipt(
+                    broker_socket=Path("/tmp/gpuq.sock"),
+                    broker_job_id="gpuq-service",
+                    broker_admission_receipt=Path("/tmp/admission.json"),
+                    service_url="http://127.0.0.1:10000",
+                    service_identity=(
+                        "PTXBench@491860bd3e587eda230ab426b086f31b2da4aa12"
+                    ),
+                    source_root=Path("/srv/fibserve"),
+                )
 
     def test_source_checkout_must_stay_clean(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -197,15 +301,22 @@ class ServiceAttestationTests(unittest.TestCase):
         with mock.patch.object(
             service_attestation, "query_broker", side_effect=[SNAPSHOT, changed]
         ), mock.patch.object(
+            service_attestation,
+            "query_broker_admission",
+            return_value=(ADMISSION, PEER),
+        ), mock.patch.object(
+            service_attestation,
+            "load_broker_admission_receipt",
+            return_value=ADMISSION,
+        ), mock.patch.object(
             service_attestation, "_git_source_identity", return_value=source
         ), mock.patch.object(service_attestation, "request_json", side_effect=request):
             receipt = service_attestation.build_service_receipt(
                 broker_socket=Path("/tmp/gpuq.sock"),
                 broker_job_id="gpuq-service",
+                broker_admission_receipt=Path("/tmp/admission.json"),
                 service_url="http://127.0.0.1:10000",
-                service_identity=(
-                    "PTXBench@491860bd3e587eda230ab426b086f31b2da4aa12"
-                ),
+                service_identity=SERVICE_IDENTITY,
                 source_root=Path("/srv/fibserve"),
             )
             with self.assertRaisesRegex(RuntimeError, "broker peer changed"):

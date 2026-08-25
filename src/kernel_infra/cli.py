@@ -51,6 +51,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     attest.add_argument("--broker-socket", type=Path, default=DEFAULT_BROKER_SOCKET)
     attest.add_argument("--broker-job-id", required=True)
+    attest.add_argument("--broker-admission-receipt", type=Path, required=True)
     attest.add_argument("--service-url", required=True)
     attest.add_argument("--service-identity", required=True)
     attest.add_argument("--source-root", type=Path, required=True)
@@ -200,6 +201,7 @@ def _service_attest(args: argparse.Namespace) -> int:
         receipt = build_service_receipt(
             broker_socket=args.broker_socket,
             broker_job_id=args.broker_job_id,
+            broker_admission_receipt=args.broker_admission_receipt,
             service_url=args.service_url,
             service_identity=args.service_identity,
             source_root=args.source_root,

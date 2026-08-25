@@ -5,7 +5,7 @@ Kernel Infra 是编码 Agent、独立 kernel evaluator 与单机
 task 与候选目录后立即获得 run id；GPU 排队和执行在后台继续，因此 Agent 可以并行
 生成、审查和提交下一批候选。
 
-v0.4 不复制已有能力：
+v0.5 不复制已有能力：
 
 - PTXBench/FIBServe 继续负责隔离编译、sanitize、evaluate 与 profile；
 - KDA 继续拥有 fast/full 独立 judge 和 workload-specific score；
@@ -100,9 +100,11 @@ ABI，并使用容差 oracle。它包含 1.0x shared-reduction 控制、warp-red
 
 FIBServe 可以让一个 broker job 长期独占一张 GPU 并保留 compiler/baseline
 cache；多个 Agent 的 `service` stage 只提交 HTTP 请求，不再逐请求申请第二张 GPU。
-开始接收候选前，用 `kernelctl service-attest` 生成 deployment receipt。每次请求前后，
-adapter 都会复核 broker peer、独占 job/GPU、健康 worker、service root，以及干净源码
-checkout 的 commit/tree。可校验模板位于
+启动服务时用 broker v0.6 的 `gpu-run --receipt-out` 保存 admission receipt；开始接收
+候选前，再用 `kernelctl service-attest --broker-admission-receipt ...` 生成 deployment
+receipt。每次请求前后，adapter 都会复核 broker peer、独占 job/GPU、launch spec、
+executable/environment digest、健康 worker、service root，以及干净源码 checkout 的
+commit/tree。可校验模板位于
 [`examples/fibserve_service/`](examples/fibserve_service/)。
 
 ## KDA authoritative evidence
@@ -143,11 +145,11 @@ exclusive balanced AB/BA benchmark 的完整实现。
 
 ## 当前边界
 
-v0.4 面向同一 Unix 身份下相互信任的 Agent，并在每个 GPU 节点各运行一个 daemon；
+v0.5 面向同一 Unix 身份下相互信任的 Agent，并在每个 GPU 节点各运行一个 daemon；
 还不承担恶意多租户隔离、跨机全局调度、优先级/抢占、显存配额或 daemon 崩溃后的
-活任务恢复。broker status v2 尚不暴露获准 command/environment，因此 launch wrapper、
-compatibility library、image 与 dataset identity 仍须由 task author 绑定到
-`judge.identity`，不能从 deployment receipt 中推断。
+活任务恢复。broker admission receipt 已拥有真实 command/environment digest；argv
+所引用的 compatibility library、image、dataset 与 config 内容仍须由 task/evaluator
+分别 fingerprint，不能仅从路径名推断。
 
 ## 测试
 

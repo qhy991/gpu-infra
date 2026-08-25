@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 — 2026-08-25
+
+- Require a broker v0.6 admission receipt for every long-running evaluator
+  deployment and re-query the active receipt before and after each request.
+- Bind launch-spec, argv, explicit/effective environment, resolved executable,
+  and executable-content digests into service identity and run fingerprints.
+- Reject saved/live receipt mismatch, broker/job/allocation mismatch, receipt
+  content tampering, and service identities that omit launch or executable
+  custody.
+- Upgrade the deployment contract to `kernelinfra.service-deployment.v2` and
+  close the v0.4 command/environment attestation gap.
+
 ## 0.4.0 — 2026-08-25
 
 - Attest long-running evaluator services against a live exclusive broker job,

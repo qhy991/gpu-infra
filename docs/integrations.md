@@ -9,19 +9,34 @@ only allocator.
 
 FIBServe already owns asynchronous task IDs, per-GPU workers, baseline cache,
 sanitization, evaluation, profiling, and raw traces. Run one FIBServe process as
-a long-lived exclusive broker job, then attest it:
+a long-lived exclusive broker v0.6 job, saving the admission receipt at start:
+
+```bash
+gpu-run \
+  --label fibserve-campaign \
+  --mode exclusive \
+  --gpu-count 1 \
+  --estimate unknown \
+  --run-timeout 2h \
+  --receipt-out /path/to/gpuq-admission.json \
+  --env SERVICE_PORT=10000 \
+  -- /path/to/start-fibserve.sh
+```
+
+Once the service is healthy, attest it:
 
 ```bash
 kernelctl service-attest \
   --broker-socket /tmp/agent-gpu-broker.sock \
   --broker-job-id gpuq-<job> \
+  --broker-admission-receipt /path/to/gpuq-admission.json \
   --service-url http://127.0.0.1:10000 \
   --service-identity 'PTXBench@<commit>+FIBServe@<commit-or-image>+dataset@<digest>' \
   --source-root /path/to/PTXBench \
   --out /path/to/deployment.json
 ```
 
-The v1 deployment receipt is created only when all of these facts hold:
+The v2 deployment receipt is created only when all of these facts hold:
 
 - the URL is loopback HTTP with an explicit port;
 - `/health` reports a non-empty, fully healthy worker set;
@@ -32,6 +47,12 @@ The v1 deployment receipt is created only when all of these facts hold:
   even when the socket path is reused;
 - the source checkout is clean, and its commit appears in the declared service
   identity;
+- the saved broker admission receipt is internally valid and byte-for-byte
+  equivalent as JSON to the live receipt re-queried from the active job;
+- broker version/instance, job id/timestamps/owner/label/mode/allocation,
+  launch-spec digest, argv digest, explicit/effective environment digests,
+  resolved executable, and executable-content digest agree;
+- the task service identity contains both launch-spec and executable digests;
 - the service root document is captured.
 
 A task then uses an `execution: service` judge with no per-request GPU resource:
@@ -59,16 +80,15 @@ A task then uses an `execution: service` judge with no per-request GPU resource:
 
 The adapter verifies the receipt and task identity before submission, copies the
 receipt into the stage, submits and polls FIBServe, saves the raw response, then
-verifies the same broker peer/job, source commit/tree, worker health, and service
-root again. A missing job, dirty source, unhealthy worker, changed broker
-process, endpoint drift, or malformed response yields `validity=unknown` and
-cannot enter the frontier.
+verifies the same broker peer/job/admission, source commit/tree, worker health,
+and service root again. A missing job, dirty source, unhealthy worker, changed
+broker process, admission drift, endpoint drift, or malformed response yields
+`validity=unknown` and cannot enter the frontier.
 
-The current broker status v2 does not expose the admitted command or environment.
-The task author must therefore bind launch-wrapper, compatibility library,
-container image, dataset, definition, and workload identities into
-`judge.identity`. The receipt must not be presented as proof of facts the broker
-does not expose.
+The admission receipt proves the actual submitted launch contract without
+exposing environment values. It does not hash arbitrary files merely referenced
+by argv, so task authors still bind dataset, model/image, config, definition,
+workload, and compatibility-asset identities into `judge.identity`.
 
 See `examples/fibserve_service/` for the checked template.
 

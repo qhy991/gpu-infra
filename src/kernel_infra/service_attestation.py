@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -15,14 +16,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "kernelinfra.service-deployment.v1"
+SCHEMA = "kernelinfra.service-deployment.v2"
+BROKER_ADMISSION_SCHEMA = "gpuq.admission-receipt.v1"
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def query_broker(socket_path: Path) -> dict[str, Any]:
+def _broker_request(
+    socket_path: Path, request: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, int | None]]:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         client.settimeout(10.0)
@@ -35,12 +39,21 @@ def query_broker(socket_path: Path) -> dict[str, Any]:
             peer["pid"], peer["uid"], peer["gid"] = struct.unpack("3i", raw_peer)
         connection = client.makefile("rwb")
         with client, connection:
-            connection.write(b'{"op":"status"}\n')
+            connection.write(
+                (json.dumps(request, separators=(",", ":")) + "\n").encode()
+            )
             connection.flush()
             value = json.loads(connection.readline())
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"cannot query broker at {socket_path}: {exc}") from exc
-    snapshot = value.get("snapshot") if isinstance(value, dict) else None
+    if not isinstance(value, dict):
+        raise RuntimeError("broker returned a non-object payload")
+    return value, peer
+
+
+def query_broker(socket_path: Path) -> dict[str, Any]:
+    value, peer = _broker_request(socket_path, {"op": "status"})
+    snapshot = value.get("snapshot")
     if not isinstance(snapshot, dict):
         raise RuntimeError("broker returned an invalid status payload")
     return {
@@ -49,6 +62,18 @@ def query_broker(socket_path: Path) -> dict[str, Any]:
         "_kernelinfra_peer_uid": peer["uid"],
         "_kernelinfra_peer_gid": peer["gid"],
     }
+
+
+def query_broker_admission(
+    socket_path: Path, job_id: str
+) -> tuple[dict[str, Any], dict[str, int | None]]:
+    value, peer = _broker_request(
+        socket_path, {"op": "receipt", "job_id": job_id}
+    )
+    receipt = value.get("receipt")
+    if value.get("ok") is not True or not isinstance(receipt, dict):
+        raise RuntimeError(f"broker has no live admission receipt for {job_id}")
+    return validate_broker_admission_receipt(receipt), peer
 
 
 def request_json(url: str, *, timeout: float = 10.0) -> dict[str, Any]:
@@ -109,6 +134,122 @@ def _broker_version(snapshot: dict[str, Any]) -> Any:
     return snapshot.get("broker_version", snapshot.get("version"))
 
 
+def _canonical_json(value: Any) -> bytes:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+
+
+def _digest_json(value: Any) -> str:
+    return hashlib.sha256(_canonical_json(value)).hexdigest()
+
+
+def _sha256_text(value: Any, where: str) -> str:
+    if not isinstance(value, str) or len(value) != 64:
+        raise RuntimeError(f"{where} must be a SHA-256 hex digest")
+    try:
+        int(value, 16)
+    except ValueError as exc:
+        raise RuntimeError(f"{where} must be a SHA-256 hex digest") from exc
+    return value
+
+
+def validate_broker_admission_receipt(value: Any) -> dict[str, Any]:
+    required = {
+        "schema",
+        "job_id",
+        "broker_version",
+        "broker_instance_id",
+        "submitted_at",
+        "started_at",
+        "owner",
+        "label",
+        "mode",
+        "gpu_count",
+        "gpu_ids",
+        "cwd",
+        "argv_count",
+        "argv_sha256",
+        "env_keys",
+        "env_sha256",
+        "launch_spec_sha256",
+        "resolved_executable",
+        "executable_sha256",
+        "effective_env_sha256",
+        "receipt_sha256",
+    }
+    if (
+        not isinstance(value, dict)
+        or set(value) != required
+        or value.get("schema") != BROKER_ADMISSION_SCHEMA
+    ):
+        raise RuntimeError("invalid broker admission receipt")
+    if value.get("mode") != "exclusive":
+        raise RuntimeError("service broker admission must be exclusive")
+    for key in (
+        "job_id",
+        "broker_version",
+        "broker_instance_id",
+        "submitted_at",
+        "started_at",
+        "owner",
+        "label",
+        "cwd",
+        "resolved_executable",
+    ):
+        if not isinstance(value.get(key), str) or not value[key]:
+            raise RuntimeError(f"broker admission {key} must be non-empty text")
+    for key in ("gpu_count", "argv_count"):
+        if (
+            not isinstance(value.get(key), int)
+            or isinstance(value[key], bool)
+            or value[key] < 1
+        ):
+            raise RuntimeError(f"broker admission {key} must be positive")
+    if not Path(value["cwd"]).is_absolute() or not Path(
+        value["resolved_executable"]
+    ).is_absolute():
+        raise RuntimeError("broker admission paths must be absolute")
+    gpu_ids = value.get("gpu_ids")
+    if not isinstance(gpu_ids, list) or not gpu_ids or not all(
+        isinstance(gpu_id, int) and not isinstance(gpu_id, bool) and gpu_id >= 0
+        for gpu_id in gpu_ids
+    ):
+        raise RuntimeError("broker admission receipt has invalid GPU ids")
+    if value.get("gpu_count") != len(gpu_ids):
+        raise RuntimeError("broker admission GPU count disagrees with allocation")
+    if not isinstance(value.get("started_at"), str) or not value["started_at"]:
+        raise RuntimeError("broker admission receipt is not a started job")
+    if not isinstance(value.get("env_keys"), list) or not all(
+        isinstance(key, str) for key in value["env_keys"]
+    ):
+        raise RuntimeError("broker admission receipt has invalid environment keys")
+    if value["env_keys"] != sorted(set(value["env_keys"])):
+        raise RuntimeError("broker admission environment keys must be unique and sorted")
+    for key in (
+        "argv_sha256",
+        "env_sha256",
+        "launch_spec_sha256",
+        "executable_sha256",
+        "effective_env_sha256",
+        "receipt_sha256",
+    ):
+        _sha256_text(value.get(key), f"broker admission {key}")
+    content = dict(value)
+    claimed = content.pop("receipt_sha256")
+    if _digest_json(content) != claimed:
+        raise RuntimeError("broker admission receipt digest disagrees with content")
+    return dict(value)
+
+
+def load_broker_admission_receipt(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"cannot load broker admission receipt {path}: {exc}") from exc
+    return validate_broker_admission_receipt(value)
+
+
 def _git_source_identity(source_root: Path) -> dict[str, str | bool]:
     root = source_root.expanduser().resolve()
     if not root.is_dir():
@@ -140,10 +281,41 @@ def _git_source_identity(source_root: Path) -> dict[str, str | bool]:
     }
 
 
+def _validate_admission_against_live_job(
+    *,
+    admission: dict[str, Any],
+    snapshot: dict[str, Any],
+    job: dict[str, Any],
+    peer: dict[str, int | None],
+) -> None:
+    if admission["broker_version"] != _broker_version(snapshot):
+        raise RuntimeError("broker admission version disagrees with live broker")
+    if admission["broker_instance_id"] != snapshot.get("instance_id"):
+        raise RuntimeError("broker admission instance disagrees with live broker")
+    for key in ("pid", "uid", "gid"):
+        if peer[key] != snapshot.get(f"_kernelinfra_peer_{key}"):
+            raise RuntimeError(f"broker admission peer disagrees with status peer: {key}")
+    for admission_key, job_key in (
+        ("job_id", "job_id"),
+        ("submitted_at", "submitted_at"),
+        ("started_at", "started_at"),
+        ("owner", "owner"),
+        ("label", "label"),
+        ("mode", "mode"),
+        ("gpu_count", "gpu_count"),
+        ("gpu_ids", "gpu_ids"),
+    ):
+        if admission[admission_key] != job.get(job_key):
+            raise RuntimeError(
+                f"broker admission disagrees with live job: {admission_key}"
+            )
+
+
 def build_service_receipt(
     *,
     broker_socket: Path,
     broker_job_id: str,
+    broker_admission_receipt: Path,
     service_url: str,
     service_identity: str,
     source_root: Path,
@@ -155,6 +327,23 @@ def build_service_receipt(
     url = _normalize_loopback_url(service_url)
     snapshot = query_broker(broker_socket)
     job = _running_job(snapshot, broker_job_id)
+    admission = load_broker_admission_receipt(
+        broker_admission_receipt.expanduser().resolve()
+    )
+    live_admission, admission_peer = query_broker_admission(
+        broker_socket, broker_job_id
+    )
+    if live_admission != admission:
+        raise RuntimeError("saved broker admission receipt differs from live broker")
+    _validate_admission_against_live_job(
+        admission=admission,
+        snapshot=snapshot,
+        job=job,
+        peer=admission_peer,
+    )
+    for key in ("launch_spec_sha256", "executable_sha256"):
+        if str(admission[key]) not in service_identity:
+            raise RuntimeError(f"service identity does not bind broker admission {key}")
     health, root = _service_documents(url)
     source = _git_source_identity(source_root)
     if str(source["source_commit"]) not in service_identity:
@@ -169,6 +358,7 @@ def build_service_receipt(
         "service_identity": service_identity,
         "service_root": root,
         "service_health": health,
+        "broker_admission_receipt": admission,
         **source,
         "broker_socket": str(broker_socket.expanduser().resolve()),
         "broker_version": _broker_version(snapshot),
@@ -198,6 +388,7 @@ def load_service_receipt(path: Path) -> dict[str, Any]:
         "service_identity",
         "service_root",
         "service_health",
+        "broker_admission_receipt",
         "source_root",
         "source_commit",
         "source_tree",
@@ -220,6 +411,9 @@ def load_service_receipt(path: Path) -> dict[str, Any]:
         raise RuntimeError("invalid service deployment receipt")
     if value.get("source_dirty") is not False:
         raise RuntimeError("service deployment receipt has a dirty source checkout")
+    value["broker_admission_receipt"] = validate_broker_admission_receipt(
+        value["broker_admission_receipt"]
+    )
     _normalize_loopback_url(str(value["service_url"]))
     return value
 
@@ -238,6 +432,17 @@ def verify_service_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         if snapshot.get(f"_kernelinfra_peer_{key}") != receipt[f"broker_peer_{key}"]:
             raise RuntimeError(f"broker peer changed after deployment attestation: {key}")
     job = _running_job(snapshot, str(receipt["broker_job_id"]))
+    live_admission, admission_peer = query_broker_admission(
+        Path(str(receipt["broker_socket"])), str(receipt["broker_job_id"])
+    )
+    if live_admission != receipt["broker_admission_receipt"]:
+        raise RuntimeError("broker admission receipt changed after attestation")
+    _validate_admission_against_live_job(
+        admission=live_admission,
+        snapshot=snapshot,
+        job=job,
+        peer=admission_peer,
+    )
     for receipt_key, job_key in (
         ("broker_job_submitted_at", "submitted_at"),
         ("broker_job_started_at", "started_at"),
@@ -251,7 +456,13 @@ def verify_service_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     health, root = _service_documents(str(receipt["service_url"]))
     if root != receipt["service_root"]:
         raise RuntimeError("service root identity changed after attestation")
-    return {"broker": snapshot, "job": job, "health": health, "root": root}
+    return {
+        "broker": snapshot,
+        "job": job,
+        "admission": live_admission,
+        "health": health,
+        "root": root,
+    }
 
 
 def atomic_json(path: Path, value: Any) -> None:

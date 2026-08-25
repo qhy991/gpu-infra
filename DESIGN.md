@@ -1,4 +1,4 @@
-# Kernel Infra v0.4 design contract
+# Kernel Infra v0.5 design contract
 
 ## Goal
 
@@ -90,6 +90,10 @@ submitting agent.
     same exclusive broker job and broker peer, a fully healthy worker set, and
     the same clean source commit/tree. The service adapter verifies this before
     submission and after result retrieval.
+12. A service deployment must include the broker-issued active admission
+    receipt. Saved and live receipts, broker instance/peer, job timestamps,
+    allocation, launch-spec digest, and executable digest must agree; the task
+    judge identity binds the launch-spec and executable digests.
 
 ## Failure semantics
 
@@ -108,12 +112,12 @@ submitting agent.
 
 ## Deliberate exclusions
 
-v0.4 is a trusted single-host service. It automatically attests the live
-broker/service/source facts exposed by the current interfaces, but broker status
-schema v2 does not expose the admitted command or environment. Launch-wrapper,
-runtime-compatibility, image, and dataset identities therefore remain facts the
-task author must bind into `judge.identity`; they are not inferred from process
-state. Kernel Infra does not provide hostile tenant isolation, a cross-host global scheduler,
+v0.5 is a trusted single-host service. It attests broker-issued launch and
+environment digests plus live broker/service/source custody. Files referenced by
+the admitted argv—dataset, model, image, config, and compatibility assets—remain
+task-owned identities and must be fingerprinted by the task/evaluator rather
+than inferred from path names. Kernel Infra does not provide hostile tenant
+isolation, a cross-host global scheduler,
 priority/preemption, GPU memory quotas, automatic agent spawning, evaluator
 implementation, or live-command resumption after daemon failure. Remote use
 runs one service beside one broker and reaches it via SSH.

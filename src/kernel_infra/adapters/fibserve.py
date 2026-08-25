@@ -149,6 +149,7 @@ def _translate(
     deployment: dict[str, Any],
 ) -> dict[str, Any]:
     reported_commit = deployment["service_root"].get("commit")
+    admission = deployment["broker_admission_receipt"]
     deployment_artifacts = {
         "fibserve_task_id": task_id,
         "deployment_receipt": "deployment-receipt.json",
@@ -159,6 +160,12 @@ def _translate(
         "deployment_receipt_sha256": _json_sha256(deployment),
         "service_identity": deployment["service_identity"],
         "broker_instance_id": deployment["broker_instance_id"],
+        "broker_admission_receipt_sha256": admission["receipt_sha256"],
+        "broker_launch_spec_sha256": admission["launch_spec_sha256"],
+        "broker_argv_sha256": admission["argv_sha256"],
+        "broker_env_sha256": admission["env_sha256"],
+        "broker_effective_env_sha256": admission["effective_env_sha256"],
+        "broker_executable_sha256": admission["executable_sha256"],
         "service_commit": reported_commit if isinstance(reported_commit, str) else "",
         "service_source_commit": deployment["source_commit"],
         "service_source_tree": deployment["source_tree"],
