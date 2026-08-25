@@ -65,6 +65,7 @@ class RunStore:
                     "judge_identity": stage.judge_identity,
                     "resolved_cwd": str(stage.cwd),
                     "command": list(stage.command),
+                    "service_deployment": stage.service_deployment_id,
                     "resources": (
                         {
                             "mode": stage.resources.mode,
@@ -94,6 +95,13 @@ class RunStore:
             "stage_index": None,
             "broker_job_id": None,
             "gpu_ids": [],
+            "service_deployment_ids": sorted(
+                {
+                    stage.service_deployment_id
+                    for stage in task.stages
+                    if stage.service_deployment_id is not None
+                }
+            ),
             "accepted_at": request["accepted_at"],
             "updated_at": request["accepted_at"],
             "terminal_at": None,

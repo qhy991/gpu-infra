@@ -94,6 +94,7 @@ class StageSpec:
     cwd: Path
     command: tuple[str, ...]
     resources: ResourceSpec | None
+    service_deployment_id: str | None
 
 
 @dataclass(frozen=True)
@@ -248,7 +249,7 @@ def _parse_stage(value: Any, *, index: int, task_dir: Path) -> StageSpec:
     _strict_keys(
         raw,
         required={"id", "kind", "judge"},
-        optional={"execution", "resources"},
+        optional={"execution", "resources", "service_deployment"},
         where=where,
     )
     stage_id = _identifier(raw["id"], f"{where}.id")
@@ -284,6 +285,16 @@ def _parse_stage(value: Any, *, index: int, task_dir: Path) -> StageSpec:
     ):
         raise ContractError(f"{where}.judge.command must be a non-empty string list")
 
+    service_deployment_id = None
+    if "service_deployment" in raw:
+        if execution != "service":
+            raise ContractError(
+                f"{where}.service_deployment is allowed only for service execution"
+            )
+        service_deployment_id = _identifier(
+            raw["service_deployment"], f"{where}.service_deployment"
+        )
+
     if execution in {"local", "service"}:
         if "resources" in raw:
             raise ContractError(
@@ -297,6 +308,7 @@ def _parse_stage(value: Any, *, index: int, task_dir: Path) -> StageSpec:
             cwd=cwd,
             command=tuple(command_value),
             resources=None,
+            service_deployment_id=service_deployment_id,
         )
 
     if "resources" not in raw:
@@ -338,4 +350,5 @@ def _parse_stage(value: Any, *, index: int, task_dir: Path) -> StageSpec:
                 resources["run_timeout_s"], f"{where}.resources.run_timeout_s"
             ),
         ),
+        service_deployment_id=None,
     )

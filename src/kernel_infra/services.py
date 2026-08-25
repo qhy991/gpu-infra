@@ -25,6 +25,8 @@ from .service_attestation import (
 from .service_binding import materialize_service_task
 from .service_contracts import ManagedServiceSpec, load_service_spec
 from .service_store import SERVICE_TERMINAL_STATES, ServiceStore
+from .contracts import TaskSpec
+from .store import RunStore, TERMINAL_STATES, utc_now
 
 _ACCEPTED = re.compile(r"\[gpu-run\] accepted job (?P<job>\S+)")
 _GPU_IDS = re.compile(r"\[gpu-run\] running on physical GPUs (?P<ids>[0-9,]+)")
@@ -38,18 +40,62 @@ class ServiceManager:
         store: ServiceStore,
         gpu_run: Path,
         broker_socket: Path,
+        run_store: RunStore | None = None,
         attest: Callable[..., dict[str, Any]] = build_service_receipt,
         health_check: Callable[[str], Any] = _service_documents,
     ) -> None:
         self.store = store
         self.gpu_run = gpu_run.expanduser().resolve()
         self.broker_socket = broker_socket.expanduser().resolve()
+        self.run_store = run_store
         self._attest = attest
         self._health_check = health_check
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._ready_or_done: dict[str, asyncio.Event] = {}
         self._stop_reasons: dict[str, str] = {}
+        self._idle_tasks: dict[str, asyncio.Task[None]] = {}
+
+    def active_consumers(self, deployment_id: str) -> list[str]:
+        if self.run_store is None:
+            return []
+        return [
+            state["run_id"]
+            for state in self.run_store.list_states()
+            if state.get("state") not in TERMINAL_STATES
+            and deployment_id in state.get("service_deployment_ids", [])
+        ]
+
+    def status(self, deployment_id: str) -> dict[str, Any]:
+        state = self.store.read_state(deployment_id)
+        consumers = self.active_consumers(deployment_id)
+        return {
+            **state,
+            "active_consumers": consumers,
+            "active_consumer_count": len(consumers),
+        }
+
+    def list_statuses(
+        self, *, service_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        return [
+            self.status(state["deployment_id"])
+            for state in self.store.list_states(service_id=service_id)
+        ]
+
+    def assert_task_deployments_ready(self, task: TaskSpec) -> None:
+        deployment_ids = {
+            stage.service_deployment_id
+            for stage in task.stages
+            if stage.service_deployment_id is not None
+        }
+        for deployment_id in sorted(deployment_ids):
+            state = self.store.read_state(deployment_id)
+            if state.get("state") != "ready":
+                raise ValueError(
+                    f"task service deployment is not ready: {deployment_id} "
+                    f"state={state.get('state')}"
+                )
 
     def start(self, spec_path: Path) -> dict[str, Any]:
         spec = load_service_spec(spec_path)
@@ -85,7 +131,7 @@ class ServiceManager:
     ) -> dict[str, Any]:
         state = self.store.read_state(deployment_id)
         if state.get("state") in READY_OR_TERMINAL:
-            return state
+            return self.status(deployment_id)
         event = self._ready_or_done.setdefault(deployment_id, asyncio.Event())
         try:
             if timeout is None:
@@ -93,8 +139,8 @@ class ServiceManager:
             else:
                 await asyncio.wait_for(event.wait(), timeout=timeout)
         except asyncio.TimeoutError:
-            return self.store.read_state(deployment_id)
-        return self.store.read_state(deployment_id)
+            return self.status(deployment_id)
+        return self.status(deployment_id)
 
     async def stop(
         self, deployment_id: str, *, reason: str = "service stop requested"
@@ -102,6 +148,11 @@ class ServiceManager:
         state = self.store.read_state(deployment_id)
         if state.get("state") in SERVICE_TERMINAL_STATES:
             return False
+        consumers = self.active_consumers(deployment_id)
+        if consumers:
+            raise ValueError(
+                f"service deployment has active consumers: {','.join(consumers)}"
+            )
         self._stop_reasons[deployment_id] = reason
         self.store.update_state(
             deployment_id, "stop_requested", state="stopping", reason=reason
@@ -200,7 +251,16 @@ class ServiceManager:
         receipt = load_service_receipt(receipt_path)
         await asyncio.to_thread(verify_service_receipt, receipt)
         current = self.store.read_state(deployment_id)
-        if current.get("state") != "ready" or current != state:
+        if current.get("state") != "ready" or any(
+            current.get(key) != state.get(key)
+            for key in (
+                "service_sha256",
+                "service_identity",
+                "deployment_receipt",
+                "broker_job_id",
+                "gpu_ids",
+            )
+        ):
             raise RuntimeError("service deployment changed during task binding")
         return materialize_service_task(
             template_path=template_path,
@@ -298,6 +358,14 @@ class ServiceManager:
                     gpu_ids=receipt["broker_gpu_ids"],
                     reason=None,
                 )
+                if spec.idle_grace_s is not None:
+                    self._idle_tasks[deployment_id] = asyncio.create_task(
+                        self._idle_watch(
+                            deployment_id=deployment_id,
+                            grace_s=spec.idle_grace_s,
+                        ),
+                        name=f"{deployment_id}-idle-watch",
+                    )
                 self._ready_or_done.setdefault(deployment_id, asyncio.Event()).set()
                 await wait_task
             else:
@@ -314,6 +382,10 @@ class ServiceManager:
             if process is not None and process.returncode is None:
                 await self._interrupt_process(process)
         finally:
+            idle_task = self._idle_tasks.pop(deployment_id, None)
+            if idle_task is not None and idle_task is not asyncio.current_task():
+                idle_task.cancel()
+                await asyncio.gather(idle_task, return_exceptions=True)
             if ready_task is not None and not ready_task.done():
                 ready_task.cancel()
             await asyncio.gather(
@@ -351,6 +423,53 @@ class ServiceManager:
             self._ready_or_done.setdefault(deployment_id, asyncio.Event()).set()
             self._tasks.pop(deployment_id, None)
             self._stop_reasons.pop(deployment_id, None)
+
+    async def _idle_watch(self, *, deployment_id: str, grace_s: float) -> None:
+        idle_started_mono: float | None = None
+        while True:
+            state = self.store.read_state(deployment_id)
+            if state.get("state") != "ready":
+                return
+            consumers = self.active_consumers(deployment_id)
+            if consumers:
+                idle_started_mono = None
+                if state.get("idle_since") is not None:
+                    self.store.update_state(
+                        deployment_id,
+                        "idle_cleared",
+                        idle_since=None,
+                    )
+            else:
+                if idle_started_mono is None:
+                    idle_started_mono = time.monotonic()
+                    if state.get("idle_since") is None:
+                        self.store.update_state(
+                            deployment_id,
+                            "idle_started",
+                            idle_since=utc_now(),
+                        )
+                elif time.monotonic() - idle_started_mono >= grace_s:
+                    # No await occurs between the final ledger projection and
+                    # the stopping transition, so submit and auto-stop are
+                    # serialized by the daemon event loop.
+                    current = self.store.read_state(deployment_id)
+                    if (
+                        current.get("state") == "ready"
+                        and not self.active_consumers(deployment_id)
+                    ):
+                        reason = f"idle grace elapsed with zero consumers: {grace_s:g}s"
+                        self._stop_reasons[deployment_id] = reason
+                        self.store.update_state(
+                            deployment_id,
+                            "idle_stop_requested",
+                            state="stopping",
+                            reason=reason,
+                        )
+                        process = self._processes.get(deployment_id)
+                        if process is not None and process.returncode is None:
+                            await self._interrupt_process(process)
+                    return
+            await asyncio.sleep(min(0.25, max(0.05, grace_s / 4)))
 
     async def _attest_when_ready(
         self,

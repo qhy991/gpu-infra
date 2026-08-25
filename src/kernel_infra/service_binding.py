@@ -97,6 +97,7 @@ def materialize_service_task(
     )
     judge["identity"] = identity.replace(SERVICE_IDENTITY_TOKEN, bound_identity)
     command[option_index + 1] = str(receipt_path)
+    stage["service_deployment"] = deployment_state["deployment_id"]
     encoded = json.dumps(raw, ensure_ascii=False)
     if SERVICE_IDENTITY_TOKEN in encoded or DEPLOYMENT_RECEIPT_TOKEN in encoded:
         raise ContractError("task template contains an unconsumed service token")

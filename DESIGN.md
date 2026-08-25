@@ -1,4 +1,4 @@
-# Kernel Infra v0.7 design contract
+# Kernel Infra v0.8 design contract
 
 ## Goal
 
@@ -122,6 +122,15 @@ submitting agent.
     service identity token and one receipt-path token in one selected service
     stage, validates the complete task, and creates both task and binding
     receipt without overwriting existing files.
+18. A materialized service stage records its managed deployment id explicitly.
+    Every run snapshots those ids; active consumers are the projection of
+    nonterminal run states, never a separately mutable counter.
+19. Submit requires every referenced managed deployment to be ready. Explicit
+    stop is illegal while consumers exist. Run acceptance and stop/idle
+    transitions are serialized in the daemon event loop.
+20. Optional idle grace advances only during a continuous zero-consumer window.
+    Any accepted/queued/running consumer clears and resets the timer. Grace
+    expiry stops through the ordinary guarded broker-client path.
 
 ## Failure semantics
 
@@ -148,10 +157,13 @@ submitting agent.
 - Task binding from a stopped/interrupted/stale deployment, ambiguous service
   stage, malformed token, or existing output path: reject without writing an
   executable task.
+- Submit against a stopped/failed/interrupted managed deployment: reject before
+  candidate snapshot. Stop with active consumers: reject without changing the
+  deployment. Idle grace with a consumer: remain ready and reset the timer.
 
 ## Deliberate exclusions
 
-v0.7 is a trusted single-host service. It attests broker-issued launch and
+v0.8 is a trusted single-host service. It attests broker-issued launch and
 environment digests plus live broker/service/source custody. Files referenced by
 the admitted argv—dataset, model, image, config, and compatibility assets—remain
 task-owned identities and must be fingerprinted by the task/evaluator rather
@@ -190,3 +202,6 @@ independently authoritative node daemons.
 - A ready deployment plus checked task template materializes one validated task
   and binding receipt; workload, comparison, ABI, and non-service judge fields
   remain byte-for-byte JSON values from the template.
+- Active consumer status equals the set of nonterminal run ids referencing the
+  deployment. A consumer prevents explicit and automatic stop; after all runs
+  become terminal, configured idle grace releases the service GPU.

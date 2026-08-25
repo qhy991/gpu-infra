@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.0 — 2026-08-25
+
+- Add an explicit managed `service_deployment` reference to materialized service
+  stages and snapshot its deployment ids into every accepted run state.
+- Derive active service consumers solely from nonterminal run ledger states;
+  expose the projection in service status without creating a second mutable
+  reference-count owner.
+- Reject task submission when its managed deployment is not ready and reject
+  service stop while any accepted/queued/running run consumes it.
+- Add optional `idle_grace_s`: start/reset the timer only while consumer count is
+  zero, clear it when a consumer appears, and stop through the guarded broker
+  client only after a continuous zero-consumer grace window.
+- Recover runs before services on startup and close runs before services on
+  daemon shutdown, preserving consumer safety across lifecycle boundaries.
+
 ## 0.7.0 — 2026-08-25
 
 - Add live-verified `service-bind-task` materialization from one ready managed

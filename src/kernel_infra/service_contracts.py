@@ -37,6 +37,7 @@ class ManagedServiceSpec:
     env: dict[str, str]
     resources: ServiceResources
     readiness_timeout_s: float
+    idle_grace_s: float | None
     raw: dict[str, Any]
     digest: str
     source_path: Path
@@ -101,7 +102,7 @@ def load_service_spec(path: Path) -> ManagedServiceSpec:
             "launch",
             "resources",
         },
-        optional={"description", "readiness_timeout_s"},
+        optional={"description", "readiness_timeout_s", "idle_grace_s"},
         where="service",
     )
     if raw["schema"] != SERVICE_SCHEMA:
@@ -182,6 +183,11 @@ def load_service_spec(path: Path) -> ManagedServiceSpec:
         ),
         readiness_timeout_s=_positive(
             raw.get("readiness_timeout_s", 300.0), "readiness_timeout_s"
+        ),
+        idle_grace_s=(
+            None
+            if raw.get("idle_grace_s") is None
+            else _positive(raw["idle_grace_s"], "idle_grace_s")
         ),
         raw=raw,
         digest=digest_json(raw),

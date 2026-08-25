@@ -42,6 +42,10 @@
 - Service task binding may replace only the exact service identity and
   deployment receipt tokens in one selected service stage. Validate the whole
   output, emit a binding receipt, and refuse all output overwrites.
+- Managed service consumers are derived from nonterminal run states carrying an
+  explicit deployment reference. Never persist an independently mutable
+  reference count. Reject stop with active consumers; idle grace begins only at
+  zero and resets whenever a consumer appears.
 - Treat connection, broker, timeout, missing-result, and malformed-result
   failures as `unknown` validity and fail closed for frontier admission.
 

@@ -90,6 +90,7 @@ class ContractTests(unittest.TestCase):
                     "id": "fibserve",
                     "kind": "judge",
                     "execution": "service",
+                    "service_deployment": "fibserve-deploy",
                     "judge": {
                         "identity": "fibserve@commit",
                         "cwd": str(root),
@@ -102,6 +103,19 @@ class ContractTests(unittest.TestCase):
             task = load_task(path)
             self.assertEqual(task.stages[0].execution, "service")
             self.assertIsNone(task.stages[0].resources)
+            self.assertEqual(
+                task.stages[0].service_deployment_id, "fibserve-deploy"
+            )
+
+            value["stages"][0]["execution"] = "broker"
+            value["stages"][0]["resources"] = {
+                "mode": "exclusive",
+                "gpu_count": 1,
+                "run_timeout_s": 10,
+            }
+            path.write_text(json.dumps(value))
+            with self.assertRaisesRegex(ContractError, "allowed only for service"):
+                load_task(path)
 
     def test_candidate_snapshot_rejects_symlink(self):
         with tempfile.TemporaryDirectory() as directory:

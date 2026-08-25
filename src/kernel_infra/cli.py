@@ -201,6 +201,7 @@ async def _serve(args: argparse.Namespace) -> int:
         store=ServiceStore(args.state_dir),
         gpu_run=gpu_run,
         broker_socket=args.broker_socket,
+        run_store=manager.store,
     )
     server = KernelInfraServer(manager, services, args.socket)
     try:
@@ -251,6 +252,7 @@ def _task_check(args: argparse.Namespace) -> int:
                             else None
                         ),
                         "judge_identity": stage.judge_identity,
+                        "service_deployment": stage.service_deployment_id,
                     }
                     for stage in task.stages
                 ],
@@ -300,6 +302,7 @@ def _service_check(args: argparse.Namespace) -> int:
                 "command": list(spec.command),
                 "env_keys": sorted(spec.env),
                 "gpu_count": spec.resources.gpu_count,
+                "idle_grace_s": spec.idle_grace_s,
             },
             indent=2,
             ensure_ascii=False,
@@ -589,10 +592,11 @@ def _print_runs(runs: list[dict[str, Any]]) -> None:
         stage = run.get("stage_id") or "-"
         broker = run.get("broker_job_id") or "-"
         gpu_ids = ",".join(map(str, run.get("gpu_ids", []))) or "-"
+        services = ",".join(run.get("service_deployment_ids", [])) or "-"
         reason = f" reason={run['reason']}" if run.get("reason") else ""
         print(
             f"{run['run_id']} state={run['state']} stage={stage} "
-            f"broker={broker} gpus={gpu_ids}{reason}"
+            f"broker={broker} gpus={gpu_ids} services={services}{reason}"
         )
 
 
@@ -604,10 +608,12 @@ def _print_services(states: list[dict[str, Any]]) -> None:
         broker = state.get("broker_job_id") or "-"
         gpu_ids = ",".join(map(str, state.get("gpu_ids", []))) or "-"
         receipt = state.get("deployment_receipt") or "-"
+        consumers = state.get("active_consumer_count", 0)
         reason = f" reason={state['reason']}" if state.get("reason") else ""
         print(
             f"{state['deployment_id']} state={state['state']} "
-            f"broker={broker} gpus={gpu_ids} receipt={receipt}{reason}"
+            f"broker={broker} gpus={gpu_ids} consumers={consumers} "
+            f"receipt={receipt}{reason}"
         )
 
 

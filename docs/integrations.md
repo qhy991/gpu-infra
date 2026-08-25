@@ -29,11 +29,18 @@ At most one deployment per service id may be nonterminal. `service-stop`
 terminates the guarded broker client and releases the allocation. Restarting a
 stopped service creates a new history rather than overwriting evidence.
 
+An optional `idle_grace_s` policy automatically stops a ready deployment only
+after its derived active-consumer set remains empty for the complete grace
+window. Every materialized run records an explicit deployment reference;
+accepted, queued, and running runs block stop and reset idle time. Terminal run
+states remove consumers from the projection.
+
 Task templates place `${KERNELINFRA_SERVICE_IDENTITY}` in the selected service
 judge identity and `${KERNELINFRA_DEPLOYMENT_RECEIPT}` immediately after its
 single `--deployment-receipt` option. Binding requires a ready deployment,
 live-verifies it, appends deployment id and receipt SHA-256 to the judge
-identity, validates the complete output task, and emits a sibling binding
+identity, adds the explicit `service_deployment` reference, validates the
+complete output task, and emits a sibling binding
 receipt. Existing outputs are never overwritten. v0.7 requires exactly one
 service stage so it never emits a partially bound task.
 Template, output task, and binding receipt must share one directory, preserving

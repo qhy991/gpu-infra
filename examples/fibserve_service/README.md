@@ -10,7 +10,8 @@ with `kernelctl service-bind-task --deployment ... --template task.json --out
 bound-task.json`. The daemon live-verifies the deployment, replaces only the
 two exact tokens, validates the result, and emits a sibling binding receipt.
 The identity includes deployment id, deployment-receipt, launch-spec, and
-executable SHA-256 values.
+executable SHA-256 values; the stage also records `service_deployment` for
+consumer protection and optional idle-grace release.
 
 For externally launched services, the lower-level alternative remains broker
 v0.6 `gpu-run --receipt-out` followed by `kernelctl service-attest

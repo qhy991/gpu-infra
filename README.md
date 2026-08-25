@@ -140,7 +140,8 @@ checked service/task templates are in
 [`examples/fibserve_service/`](examples/fibserve_service/).
 
 `service-bind-task` accepts only a ready deployment, live-verifies its receipt,
-replaces two exact tokens in one service stage, validates the whole task, and
+replaces two exact tokens, adds the explicit managed deployment reference to
+that service stage, validates the whole task, and
 atomically creates both `task.json` and `task.json.binding.json`. It never
 overwrites existing outputs.
 Template, task output, and binding receipt stay in one directory so relative
@@ -196,6 +197,13 @@ deployment.json           live service/source/broker attestation
 Each materialized task has a sibling
 `kernelinfra.service-task-binding.v1` receipt recording template, deployment,
 receipt, output task, stage, and canonical SHA-256 identities.
+
+Materialized runs become active consumers of that deployment. `service-status`
+shows `active_consumers` and `active_consumer_count`; `service-stop` is rejected
+until every consumer run is terminal. A service spec may set `idle_grace_s` so
+zero consumers automatically release the GPU after a continuous grace window.
+Any new consumer clears and resets that timer. The count is derived from run
+states and is never stored as independent authority.
 
 ## Evaluator contract
 

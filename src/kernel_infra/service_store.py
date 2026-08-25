@@ -49,6 +49,7 @@ class ServiceStore:
                 "run_timeout_s": spec.resources.run_timeout_s,
             },
             "readiness_timeout_s": spec.readiness_timeout_s,
+            "idle_grace_s": spec.idle_grace_s,
         }
         RunStore.atomic_json(directory / "request.json", request, mode=0o600)
         state = {
@@ -68,6 +69,8 @@ class ServiceStore:
             "ready_at": None,
             "terminal_at": None,
             "reason": None,
+            "idle_grace_s": spec.idle_grace_s,
+            "idle_since": None,
             "deployment_dir": str(directory),
         }
         RunStore.atomic_json(directory / "state.json", state)

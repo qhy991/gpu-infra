@@ -93,9 +93,14 @@ class RunManager:
                 pass
 
     def submit(
-        self, *, task_path: Path, candidate: Path, label: str | None = None
+        self,
+        *,
+        task_path: Path,
+        candidate: Path,
+        label: str | None = None,
+        task_spec: TaskSpec | None = None,
     ) -> dict[str, Any]:
-        task = load_task(task_path)
+        task = task_spec or load_task(task_path)
         effective_label = (label or candidate.name or task.task_id).strip()
         if not effective_label:
             raise ValueError("label must not be empty")

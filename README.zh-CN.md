@@ -125,9 +125,14 @@ kernelctl service-stop "$deployment_id"
 ```
 
 `service-bind-task` 只接受 live-verified ready deployment，只替换一个 service stage
-中的两个精确 token，随后校验完整 task，并以 create-only 原子写入 task 与 sibling
-binding receipt；已有输出不会被覆盖。
+中的两个精确 token，并加入显式 managed deployment reference；随后校验完整 task，
+并以 create-only 原子写入 task 与 sibling binding receipt；已有输出不会被覆盖。
 三者必须位于同一目录，确保 task 中相对路径的语义不会因 materialization 改变。
+
+materialized run 会成为该 deployment 的 active consumer。`service-status` 显示
+consumer run ids/count；只要仍有非终态 consumer，`service-stop` 就会拒绝。service
+spec 可设置 `idle_grace_s`，仅当 consumer 持续为零时自动释放 GPU；新 consumer 会
+清除并重置计时。consumer projection 始终从 run state 推导，不单独保存可变计数。
 
 每次候选请求前后，adapter 都会复核 broker peer、独占 job/GPU、launch spec、
 executable/environment digest、健康 worker、service root，以及干净源码 checkout

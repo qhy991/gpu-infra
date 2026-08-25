@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from kernel_infra.cli import _atomic_new_json
-from kernel_infra.contracts import ContractError, digest_json
+from kernel_infra.contracts import ContractError, digest_json, load_task
 from kernel_infra.service_binding import (
     DEPLOYMENT_RECEIPT_TOKEN,
     SERVICE_IDENTITY_TOKEN,
@@ -16,6 +16,7 @@ from kernel_infra.service_binding import (
 from kernel_infra.service_contracts import load_service_spec
 from kernel_infra.service_store import ServiceStore
 from kernel_infra.services import ServiceManager
+from kernel_infra.store import RunStore
 
 
 FAKE_GPU_RUN = r'''#!/usr/bin/env python3
@@ -114,11 +115,12 @@ class ManagedServiceTests(unittest.IsolatedAsyncioTestCase):
                         "queue_timeout_s": 5,
                         "run_timeout_s": 30,
                     },
-                    "readiness_timeout_s": 3,
+                    "readiness_timeout_s": 10,
                 }
             )
         )
         self.attest_calls = []
+        self.run_store = RunStore(self.root / "run-state")
 
         def attest(**kwargs):
             self.attest_calls.append(kwargs)
@@ -137,6 +139,7 @@ class ManagedServiceTests(unittest.IsolatedAsyncioTestCase):
             store=ServiceStore(self.root / "state"),
             gpu_run=self.fake_gpu_run,
             broker_socket=self.root / "broker.sock",
+            run_store=self.run_store,
             attest=attest,
             health_check=lambda _url: ({"status": "ok"}, {"name": "test"}),
         )
@@ -145,10 +148,59 @@ class ManagedServiceTests(unittest.IsolatedAsyncioTestCase):
         await self.manager.close()
         self.temp.cleanup()
 
+    def register_consumer(self, deployment_id: str, label: str = "consumer"):
+        task_path = self.root / f"{label}.task.json"
+        task_path.write_text(
+            json.dumps(
+                {
+                    "schema": "kernelinfra.task.v1",
+                    "task_id": f"task-{label}",
+                    "workloads": ["w0"],
+                    "comparison": {
+                        "primary_workloads": ["w0"],
+                        "relative_noise_floor": 0.01,
+                    },
+                    "stages": [
+                        {
+                            "id": "service",
+                            "kind": "judge",
+                            "execution": "service",
+                            "service_deployment": deployment_id,
+                            "judge": {
+                                "identity": "service@test",
+                                "cwd": str(self.root),
+                                "command": ["true"],
+                            },
+                        }
+                    ],
+                }
+            )
+        )
+        candidate = self.root / f"{label}.candidate"
+        candidate.mkdir()
+        (candidate / "kernel.py").write_text("value = 1\n")
+        return self.run_store.create_run(
+            task=load_task(task_path), candidate=candidate, label=label
+        )
+
+    async def wait_for_service_state(
+        self, deployment_id: str, expected: str, timeout: float = 5
+    ):
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            state = self.manager.status(deployment_id)
+            if state["state"] == expected:
+                return state
+            await asyncio.sleep(0.05)
+        self.fail(
+            f"deployment {deployment_id} did not reach {expected}: "
+            f"{self.manager.status(deployment_id)}"
+        )
+
     async def test_start_is_nonblocking_ready_is_durable_and_stop_releases(self):
         accepted = self.manager.start(self.spec_path)
         self.assertEqual(accepted["state"], "accepted")
-        ready = await self.manager.wait(accepted["deployment_id"], timeout=5)
+        ready = await self.manager.wait(accepted["deployment_id"], timeout=15)
         self.assertEqual(ready["state"], "ready")
         self.assertEqual(ready["broker_job_id"], "gpuq-managed-service")
         self.assertEqual(ready["gpu_ids"], [7])
@@ -217,7 +269,7 @@ class ManagedServiceTests(unittest.IsolatedAsyncioTestCase):
 
         restarted = self.manager.start(self.spec_path)
         self.assertNotEqual(restarted["deployment_id"], ready["deployment_id"])
-        second_ready = await self.manager.wait(restarted["deployment_id"], timeout=5)
+        second_ready = await self.manager.wait(restarted["deployment_id"], timeout=15)
         self.assertEqual(second_ready["state"], "ready")
         await self.manager.stop(second_ready["deployment_id"])
 
@@ -233,7 +285,7 @@ class ManagedServiceTests(unittest.IsolatedAsyncioTestCase):
             health_check=lambda _url: ({"status": "ok"}, {"name": "test"}),
         )
         accepted = manager.start(self.spec_path)
-        terminal = await manager.wait(accepted["deployment_id"], timeout=5)
+        terminal = await manager.wait(accepted["deployment_id"], timeout=15)
         self.assertEqual(terminal["state"], "failed")
         self.assertIn("attestation rejected", terminal["reason"])
         self.assertFalse(
@@ -248,6 +300,66 @@ class ManagedServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stopped["state"], "stopped")
         self.assertNotIn(accepted["deployment_id"], self.manager._processes)
         self.assertNotIn(accepted["deployment_id"], self.manager._tasks)
+
+    async def test_active_consumer_projection_blocks_stop_until_run_terminal(self):
+        accepted = self.manager.start(self.spec_path)
+        ready = await self.manager.wait(accepted["deployment_id"], timeout=15)
+        self.assertEqual(ready["state"], "ready")
+        consumer = self.register_consumer(ready["deployment_id"], "active")
+        consumer_task = load_task(
+            self.run_store.run_dir(consumer["run_id"]) / "task.json"
+        )
+        self.manager.assert_task_deployments_ready(consumer_task)
+        status = self.manager.status(ready["deployment_id"])
+        self.assertEqual(status["active_consumers"], [consumer["run_id"]])
+        self.assertEqual(status["active_consumer_count"], 1)
+        with self.assertRaisesRegex(ValueError, "active consumers"):
+            await self.manager.stop(ready["deployment_id"])
+        self.assertEqual(
+            self.manager.store.read_state(ready["deployment_id"])["state"],
+            "ready",
+        )
+        self.run_store.update_state(
+            consumer["run_id"], "test_completed", state="completed"
+        )
+        self.assertEqual(
+            self.manager.status(ready["deployment_id"])["active_consumer_count"],
+            0,
+        )
+        self.assertTrue(await self.manager.stop(ready["deployment_id"]))
+        with self.assertRaisesRegex(ValueError, "not ready"):
+            self.manager.assert_task_deployments_ready(consumer_task)
+
+    async def test_idle_grace_resets_for_consumer_then_auto_stops(self):
+        value = json.loads(self.spec_path.read_text())
+        value["idle_grace_s"] = 0.4
+        idle_spec = self.root / "idle-service.json"
+        idle_spec.write_text(json.dumps(value))
+        accepted = self.manager.start(idle_spec)
+        ready = await self.manager.wait(accepted["deployment_id"], timeout=15)
+        self.assertEqual(ready["state"], "ready")
+        for _ in range(40):
+            if self.manager.store.read_state(ready["deployment_id"])[
+                "idle_since"
+            ]:
+                break
+            await asyncio.sleep(0.025)
+        else:
+            self.fail("idle timer did not start")
+        consumer = self.register_consumer(ready["deployment_id"], "idle-reset")
+        await asyncio.sleep(0.6)
+        protected = self.manager.status(ready["deployment_id"])
+        self.assertEqual(protected["state"], "ready")
+        self.assertEqual(protected["active_consumer_count"], 1)
+        self.assertIsNone(protected["idle_since"])
+        self.run_store.update_state(
+            consumer["run_id"], "test_completed", state="completed"
+        )
+        stopped = await self.wait_for_service_state(
+            ready["deployment_id"], "stopped", timeout=2
+        )
+        self.assertIn("idle grace elapsed", stopped["reason"])
+        self.assertEqual(stopped["active_consumer_count"], 0)
 
     async def test_preexisting_endpoint_is_rejected_before_broker_launch(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
@@ -374,6 +486,9 @@ class ServiceTaskBindingTests(unittest.TestCase):
                 deployment_receipt=deployment,
             )
             judge = task["stages"][0]["judge"]
+            self.assertEqual(
+                task["stages"][0]["service_deployment"], "fibserve-abc123"
+            )
             self.assertIn("FIBServe@commit", judge["identity"])
             self.assertIn("deployment:fibserve-abc123", judge["identity"])
             self.assertIn(

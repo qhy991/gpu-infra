@@ -28,8 +28,8 @@ class KernelInfraServer:
         self._server: asyncio.AbstractServer | None = None
 
     async def start(self) -> int:
-        recovered_services = await self.services.recover_interrupted()
         recovered_runs = await self.manager.recover_interrupted()
+        recovered_services = await self.services.recover_interrupted()
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
         if self.socket_path.exists():
             if not stat.S_ISSOCK(self.socket_path.stat().st_mode):
@@ -51,8 +51,8 @@ class KernelInfraServer:
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
-        await self.services.close()
         await self.manager.close()
+        await self.services.close()
         try:
             if stat.S_ISSOCK(self.socket_path.stat().st_mode):
                 self.socket_path.unlink()
@@ -105,10 +105,13 @@ class KernelInfraServer:
             raise ValueError("request must be an object")
         operation = request.get("op")
         if operation == "submit":
+            task = load_task(Path(request["task"]))
+            self.services.assert_task_deployments_ready(task)
             state = self.manager.submit(
                 task_path=Path(request["task"]),
                 candidate=Path(request["candidate"]),
                 label=request.get("label"),
+                task_spec=task,
             )
             return {"ok": True, "run": state}
         if operation == "submit_many":
@@ -118,7 +121,8 @@ class KernelInfraServer:
             # Fail before accepting any run when a batch contains an invalid
             # candidate. Snapshotting repeats this check to close the mutation
             # window for cooperating clients.
-            load_task(Path(request["task"]))
+            task = load_task(Path(request["task"]))
+            self.services.assert_task_deployments_ready(task)
             for candidate in candidates:
                 validate_candidate(Path(candidate))
             prefix = str(request.get("label_prefix") or "").strip()
@@ -131,6 +135,7 @@ class KernelInfraServer:
                         task_path=Path(request["task"]),
                         candidate=path,
                         label=label,
+                        task_spec=task,
                     )
                 )
             return {"ok": True, "runs": runs}
@@ -163,9 +168,9 @@ class KernelInfraServer:
         if operation == "service_status":
             deployment_id = request.get("deployment_id")
             states = (
-                [self.services.store.read_state(str(deployment_id))]
+                [self.services.status(str(deployment_id))]
                 if deployment_id
-                else self.services.store.list_states(
+                else self.services.list_statuses(
                     service_id=request.get("service_id")
                 )
             )

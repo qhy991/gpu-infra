@@ -20,5 +20,6 @@
     "queue_timeout_s": 14400,
     "run_timeout_s": 7200
   },
-  "readiness_timeout_s": 600
+  "readiness_timeout_s": 600,
+  "idle_grace_s": 300
 }
