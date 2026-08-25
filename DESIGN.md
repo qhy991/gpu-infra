@@ -1,4 +1,4 @@
-# Kernel Infra v0.12 design contract
+# Kernel Infra v0.13 design contract
 
 ## Goal
 
@@ -28,6 +28,8 @@ kernel validity, and performance-frontier decisions separate.
     node run; it is never a lifecycle or frontier authority.
 11. **Fleet snapshot**: one ephemeral read model over prevalidated unique route
     receipts and concurrent fixed-node lifecycle observations.
+12. **Fleet endpoint map**: current SSH, kernelctl, and socket reachability for
+    an unchanged historical node id; it owns no route or run fact.
 
 No separate campaign state, agent memory, or experiment database is required.
 Agents can submit several runs, and a task digest groups the comparable
@@ -53,6 +55,7 @@ set.
 | Terminal artifact manifest | selected node run directory |
 | Downloaded artifact copy | local mirror, explicitly non-authoritative |
 | Multi-route current view | derived client snapshot; node runs remain authoritative |
+| Current post-acceptance transport endpoint | checked fleet endpoint map |
 
 Kernel Infra never edits evaluator code, selects a winner from agent prose, or
 uses a live aggregate score as the factual timing owner.
@@ -102,6 +105,13 @@ Agent fleet-snapshot
   -> query fixed node/run locators concurrently without probe or reroute
   -> preserve exact ok responses and per-route unknown failures
   -> derive terminal/nonterminal/state counts without campaign state
+
+Agent route operation after node software upgrade
+  -> validate the original catalog and immutable route receipt
+  -> resolve the same node id through a checked current endpoint map
+  -> prove exact run/task/candidate ledger continuity at that endpoint
+  -> perform one fixed-node status/wait/cancel/frontier/fetch/snapshot operation
+  -> record exact transport values without rewriting route history
 ```
 
 Multiple runs advance concurrently. CPU compilation uses a separate bounded
@@ -190,6 +200,15 @@ submitting agent.
     One unknown route cannot be retried elsewhere or erase other observations.
 29. Fleet snapshots are create-only derived views with no independent campaign
     lifecycle, queue, retry state, or digest.
+30. A fleet endpoint map may replace only SSH host, kernelctl path, and daemon
+    socket for a route's unchanged historical node id. It cannot affect submit,
+    node selection, inbox, capabilities, task, candidate, or run locator.
+31. Endpoint replacement requires an immutable route receipt; bare locators are
+    insufficient. The current endpoint must return the route-owned run/task/
+    candidate and recorded run directory before cancel or frontier, while wait,
+    status, snapshot, and artifact export validate their returned evidence.
+32. Observation, snapshot, and mirror v2 outputs embed the exact endpoint values
+    used. Endpoint maps add no digest or alternate node identity authority.
 
 ## Failure semantics
 
@@ -232,10 +251,15 @@ submitting agent.
 - Invalid or duplicate snapshot routes: reject before SSH and create no view.
   Remote timeout or identity drift after validation: retain that route as
   unknown while preserving independent observations from other locators.
+- Endpoint map node absent from the historical catalog, missing route, missing
+  node entry, unsafe path/host, wrong state ledger, or run identity drift:
+  reject or report unknown without cancel, frontier, fetch install, reroute, or
+  historical route mutation.
 
 ## Deliberate exclusions
 
-v0.12 adds trusted cross-host routing, multi-route observation, and
+v0.13 adds trusted cross-host routing, endpoint-stable post-acceptance
+operations, multi-route observation, and
 terminal-artifact clients over independently authoritative
 single-host services. It attests broker-issued launch and
 environment digests plus live broker/service/source custody. Files referenced by
@@ -293,3 +317,6 @@ independently authoritative node daemons rather than a global scheduler.
 - One snapshot observes several running and terminal B200 locators concurrently;
   an unreachable fixed-node locator remains independently unknown, and no
   snapshot creates, retries, cancels, or reroutes a run.
+- Historical v0.9 B200 KDA and FIBServe routes remain usable through a checked
+  v0.13 endpoint while preserving their original catalog/route bytes; a wrong
+  endpoint state root fails before mutation or evidence promotion.

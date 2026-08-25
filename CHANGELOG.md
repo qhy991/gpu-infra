@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.13.0 — 2026-08-25
+
+- Add strict `kernelinfra.fleet-endpoints.v1` maps that update only current SSH,
+  kernelctl, and socket reachability for an unchanged historical node id.
+- Allow checked endpoint maps on route-based status, wait, cancel, frontier,
+  snapshot, and artifact fetch; bare locators and new submissions cannot use
+  them.
+- Revalidate exact run/task/candidate and, when recorded, run-directory
+  identity at the current endpoint. Route cancel uses one atomic checked daemon
+  operation; frontier preflights the run. Wrong custody fails without mutation.
+- Upgrade remote observations, fleet snapshots, and artifact mirrors to v2 so
+  they record exact endpoint values. Add no endpoint-map digest.
+
 ## 0.12.0 — 2026-08-25
 
 - Add `fleet-snapshot` so an agent can observe up to 256 accepted route

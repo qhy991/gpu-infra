@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from kernel_infra.contracts import ContractError, digest_json
-from kernel_infra.cli import _fleet_fetch, _fleet_snapshot
+from kernel_infra.cli import _fleet_fetch, _fleet_remote_run, _fleet_snapshot
 from kernel_infra.fleet import (
     FleetCatalog,
     FleetNode,
@@ -19,6 +19,7 @@ from kernel_infra.fleet import (
     fleet_snapshot,
     install_artifact_mirror,
     load_fleet_catalog,
+    load_fleet_endpoints,
     load_route_receipt,
     parse_locator,
     probe_node,
@@ -26,6 +27,7 @@ from kernel_infra.fleet import (
     receive_artifact_export,
     remote_kernelctl_json,
     remote_observation_receipt,
+    resolve_fleet_endpoint,
     select_node,
     write_artifact_export,
 )
@@ -208,6 +210,10 @@ class FleetCatalogTests(unittest.TestCase):
             observed_content = dict(observation)
             claimed = observed_content.pop("observation_sha256")
             self.assertEqual(claimed, digest_json(observed_content))
+            self.assertEqual(
+                observation["schema"], "kernelinfra.remote-observation.v2"
+            )
+            self.assertEqual(observation["endpoint"]["owner"], "historical-catalog")
 
     def test_remote_wait_exit_three_is_an_observation_not_transport_failure(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -267,6 +273,25 @@ class FleetSnapshotTests(unittest.TestCase):
         path.write_text(json.dumps(value))
         return path
 
+    def endpoints(self, root: Path, catalog: FleetCatalog):
+        path = root / "endpoints.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "schema": "kernelinfra.fleet-endpoints.v1",
+                    "nodes": [
+                        {
+                            "id": "b200",
+                            "ssh": "b200-upgraded",
+                            "kernelctl": "/srv/v13/kernelctl",
+                            "socket": "/tmp/kernel-v13.sock",
+                        }
+                    ],
+                }
+            )
+        )
+        return path, load_fleet_endpoints(path, catalog)
+
     @staticmethod
     def response(route, state):
         value = json.loads(route.read_text())
@@ -323,7 +348,7 @@ class FleetSnapshotTests(unittest.TestCase):
                 route_paths=[running, unknown, completed],
                 query=query,
             )
-            self.assertEqual(snapshot["schema"], "kernelinfra.fleet-snapshot.v1")
+            self.assertEqual(snapshot["schema"], "kernelinfra.fleet-snapshot.v2")
             self.assertEqual(
                 [
                     (item["locator"]["node_id"], item["locator"]["run_id"])
@@ -427,6 +452,134 @@ class FleetSnapshotTests(unittest.TestCase):
             self.assertIn("task_id drift", observation["error"])
             self.assertEqual(snapshot["summary"]["ok"], 0)
 
+    def test_endpoint_map_rebinds_transport_only_and_is_strict(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog = self.catalog(root)
+            path, endpoints = self.endpoints(root, catalog)
+            historical = next(node for node in catalog.nodes if node.node_id == "b200")
+            effective, record = resolve_fleet_endpoint(
+                catalog=catalog, node=historical, endpoints=endpoints
+            )
+            self.assertEqual(effective.ssh_host, "b200-upgraded")
+            self.assertEqual(effective.kernelctl, "/srv/v13/kernelctl")
+            self.assertEqual(effective.socket, "/tmp/kernel-v13.sock")
+            self.assertEqual(effective.inbox, historical.inbox)
+            self.assertEqual(effective.capabilities, historical.capabilities)
+            self.assertEqual(record["owner"], "fleet-endpoints")
+            self.assertEqual(record["source"], str(path.resolve()))
+
+            value = json.loads(path.read_text())
+            value["nodes"][0]["id"] = "new-node"
+            path.write_text(json.dumps(value))
+            with self.assertRaisesRegex(ContractError, "historical catalog"):
+                load_fleet_endpoints(path, catalog)
+
+    def test_snapshot_uses_current_endpoint_but_historical_route_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog = self.catalog(root)
+            _path, endpoints = self.endpoints(root, catalog)
+            route = self.route(
+                root,
+                catalog,
+                node_id="b200",
+                run_id="old-route-run",
+                name="route.json",
+            )
+
+            def query(*, node, arguments, **_kwargs):
+                self.assertEqual(node.ssh_host, "b200-upgraded")
+                self.assertEqual(node.kernelctl, "/srv/v13/kernelctl")
+                self.assertEqual(node.socket, "/tmp/kernel-v13.sock")
+                self.assertEqual(arguments[-1], "old-route-run")
+                return self.response(route, "completed")
+
+            snapshot = fleet_snapshot(
+                catalog=catalog,
+                route_paths=[route],
+                endpoints=endpoints,
+                query=query,
+            )
+            observation = snapshot["observations"][0]
+            self.assertEqual(observation["status"], "ok")
+            self.assertEqual(observation["endpoint"]["owner"], "fleet-endpoints")
+            self.assertEqual(
+                observation["endpoint"]["kernelctl"], "/srv/v13/kernelctl"
+            )
+
+    def test_endpoint_cancel_preflight_blocks_wrong_state_ledger(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog = self.catalog(root)
+            endpoint_path, _endpoints = self.endpoints(root, catalog)
+            route = self.route(
+                root,
+                catalog,
+                node_id="b200",
+                run_id="cancel-run",
+                name="route.json",
+            )
+            output = root / "cancel-observation.json"
+            args = argparse.Namespace(
+                command="fleet-cancel",
+                catalog=catalog.source_path,
+                endpoints=endpoint_path,
+                locator=None,
+                route=route,
+                out=output,
+                json=False,
+            )
+            wrong = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "cancelled": True,
+                        "run": {
+                            "run_id": "cancel-run",
+                            "task_id": "wrong-task",
+                            "task_sha256": "1" * 64,
+                            "candidate_sha256": "2" * 64,
+                            "state": "running",
+                        },
+                    }
+                ),
+                stderr="",
+            )
+            with mock.patch(
+                "kernel_infra.fleet.subprocess.run", return_value=wrong
+            ) as remote, mock.patch("sys.stdout", new=io.StringIO()):
+                self.assertEqual(_fleet_remote_run(args), 1)
+            self.assertEqual(remote.call_count, 1)
+            command = remote.call_args.args[0][-1]
+            self.assertIn("fleet-cancel-checked", command)
+            self.assertNotIn(" cancel ", command)
+            observation = json.loads(output.read_text())
+            self.assertEqual(observation["status"], "unknown")
+            self.assertEqual(observation["endpoint"]["owner"], "fleet-endpoints")
+            self.assertIn("task_id drift", observation["error"])
+
+    def test_endpoint_map_requires_historical_route_not_bare_locator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog = self.catalog(root)
+            endpoint_path, _endpoints = self.endpoints(root, catalog)
+            args = argparse.Namespace(
+                command="fleet-status",
+                catalog=catalog.source_path,
+                endpoints=endpoint_path,
+                locator="b200:bare-run",
+                route=None,
+                out=None,
+                json=False,
+            )
+            with mock.patch(
+                "kernel_infra.fleet.subprocess.run"
+            ) as remote, mock.patch("sys.stderr", new=io.StringIO()):
+                self.assertEqual(_fleet_remote_run(args), 1)
+            remote.assert_not_called()
+
     def test_snapshot_cli_writes_create_only_view_and_signals_all_unknown(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -439,7 +592,7 @@ class FleetSnapshotTests(unittest.TestCase):
                 name="route.json",
             )
             snapshot = {
-                "schema": "kernelinfra.fleet-snapshot.v1",
+                "schema": "kernelinfra.fleet-snapshot.v2",
                 "observed_at": "2026-08-25T00:00:00+00:00",
                 "catalog": str(catalog.source_path),
                 "observations": [],
@@ -659,6 +812,13 @@ class FleetArtifactMirrorTests(unittest.TestCase):
             self.assertNotIn("sha256", exported["files"][0])
 
             catalog, route = self.catalog_and_route(root)
+            route_content = dict(route)
+            route_content.pop("route_receipt_sha256")
+            route_content["remote"]["run"]["run_dir"] = str(run_dir.resolve())
+            route = {
+                **route_content,
+                "route_receipt_sha256": digest_json(route_content),
+            }
             destination = root / "mirror"
             stream.seek(0)
             mirror = install_artifact_mirror(
@@ -682,7 +842,10 @@ class FleetArtifactMirrorTests(unittest.TestCase):
             )
             self.assertTrue((destination / "catalog.json").is_file())
             self.assertTrue((destination / "route.json").is_file())
+            self.assertTrue((destination / "endpoint.json").is_file())
             self.assertTrue((destination / "mirror.json").is_file())
+            self.assertEqual(mirror["schema"], "kernelinfra.artifact-mirror.v2")
+            self.assertEqual(mirror["transport_endpoint"], "endpoint.json")
 
             second = io.BytesIO()
             write_artifact_export(

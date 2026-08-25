@@ -1,0 +1,17 @@
+{
+  "schema": "kernelinfra.fleet-endpoints.v1",
+  "nodes": [
+    {
+      "id": "a800",
+      "ssh": "A800",
+      "kernelctl": "/opt/kernel-infra/current/bin/kernelctl",
+      "socket": "/run/kernel-infra/control.sock"
+    },
+    {
+      "id": "b200",
+      "ssh": "verda-b200x4",
+      "kernelctl": "/opt/kernel-infra/current/bin/kernelctl",
+      "socket": "/run/kernel-infra/control.sock"
+    }
+  ]
+}

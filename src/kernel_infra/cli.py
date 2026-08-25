@@ -15,6 +15,7 @@ from typing import Any
 
 from .contracts import ContractError, digest_json, load_task
 from .fleet import (
+    FLEET_ENDPOINTS_SCHEMA,
     FleetSelectionError,
     MAX_ARTIFACT_BYTES,
     RECEIVE_SCHEMA,
@@ -24,15 +25,19 @@ from .fleet import (
     fleet_snapshot as build_fleet_snapshot,
     install_artifact_mirror,
     load_fleet_catalog,
+    load_fleet_endpoints,
     parse_locator,
     probe_fleet,
     receive_fleet_bundle,
     remote_kernelctl_json,
     remote_observation_receipt,
+    resolve_fleet_endpoint,
     required_deployments,
     select_node,
     submit_bundle_to_node,
     route_locator_from_receipt,
+    query_route_status,
+    validate_route_run_response,
     write_artifact_export,
 )
 from .runner import RunManager
@@ -88,6 +93,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     fleet_check.add_argument("catalog", type=Path)
 
+    fleet_endpoints_check = sub.add_parser(
+        "fleet-endpoints-check", help="validate current endpoints against a catalog"
+    )
+    fleet_endpoints_check.add_argument("--catalog", type=Path, required=True)
+    fleet_endpoints_check.add_argument("endpoints", type=Path)
+
     fleet_probe = sub.add_parser(
         "fleet-probe", help="probe all catalog nodes without changing them"
     )
@@ -118,10 +129,21 @@ def _parser() -> argparse.ArgumentParser:
     )
     fleet_export.add_argument("run_id")
 
+    fleet_cancel_checked = sub.add_parser(
+        "fleet-cancel-checked", help=argparse.SUPPRESS
+    )
+    _client_socket(fleet_cancel_checked)
+    fleet_cancel_checked.add_argument("--task-id", required=True)
+    fleet_cancel_checked.add_argument("--task-sha256", required=True)
+    fleet_cancel_checked.add_argument("--candidate-sha256", required=True)
+    fleet_cancel_checked.add_argument("--run-dir")
+    fleet_cancel_checked.add_argument("run_id")
+
     fleet_fetch = sub.add_parser(
         "fleet-fetch", help="mirror one terminal routed run from its owning node"
     )
     fleet_fetch.add_argument("--catalog", type=Path, required=True)
+    fleet_fetch.add_argument("--endpoints", type=Path)
     fleet_fetch.add_argument("--route", type=Path, required=True)
     fleet_fetch.add_argument("--out", type=Path, required=True)
     fleet_fetch.add_argument(
@@ -134,6 +156,7 @@ def _parser() -> argparse.ArgumentParser:
         "fleet-snapshot", help="observe many routed runs in parallel"
     )
     fleet_snapshot.add_argument("--catalog", type=Path, required=True)
+    fleet_snapshot.add_argument("--endpoints", type=Path)
     fleet_snapshot.add_argument("--out", type=Path)
     fleet_snapshot.add_argument("--json", action="store_true")
     fleet_snapshot.add_argument("routes", nargs="+", type=Path)
@@ -145,6 +168,7 @@ def _parser() -> argparse.ArgumentParser:
     ):
         remote = sub.add_parser(name, help=help_text)
         remote.add_argument("--catalog", type=Path, required=True)
+        remote.add_argument("--endpoints", type=Path)
         locator = remote.add_mutually_exclusive_group(required=True)
         locator.add_argument("--locator")
         locator.add_argument("--route", type=Path)
@@ -157,6 +181,7 @@ def _parser() -> argparse.ArgumentParser:
         "fleet-frontier", help="rebuild a routed task frontier on its owning node"
     )
     fleet_frontier.add_argument("--catalog", type=Path, required=True)
+    fleet_frontier.add_argument("--endpoints", type=Path)
     fleet_frontier.add_argument("--route", type=Path, required=True)
     fleet_frontier.add_argument("--out", type=Path)
     fleet_frontier.add_argument("--json", action="store_true")
@@ -267,6 +292,8 @@ def main(argv: list[str] | None = None) -> int:
         return _node_status(args)
     if args.command == "fleet-check":
         return _fleet_check(args)
+    if args.command == "fleet-endpoints-check":
+        return _fleet_endpoints_check(args)
     if args.command == "fleet-probe":
         return _fleet_probe(args)
     if args.command == "fleet-submit":
@@ -275,6 +302,8 @@ def main(argv: list[str] | None = None) -> int:
         return _fleet_receive(args)
     if args.command == "fleet-export":
         return _fleet_export(args)
+    if args.command == "fleet-cancel-checked":
+        return _fleet_cancel_checked(args)
     if args.command == "fleet-fetch":
         return _fleet_fetch(args)
     if args.command == "fleet-snapshot":
@@ -436,6 +465,36 @@ def _fleet_check(args: argparse.Namespace) -> int:
                         "capabilities": sorted(node.capabilities),
                     }
                     for node in catalog.nodes
+                ],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+def _fleet_endpoints_check(args: argparse.Namespace) -> int:
+    try:
+        catalog = load_fleet_catalog(args.catalog)
+        endpoints = load_fleet_endpoints(args.endpoints, catalog)
+    except ContractError as exc:
+        print(f"kernelctl: {exc}", file=sys.stderr)
+        return 2
+    print(
+        json.dumps(
+            {
+                "schema": FLEET_ENDPOINTS_SCHEMA,
+                "historical_catalog": str(catalog.source_path),
+                "source": str(endpoints.source_path),
+                "nodes": [
+                    {
+                        "id": endpoint.node_id,
+                        "ssh": endpoint.ssh_host,
+                        "kernelctl": endpoint.kernelctl,
+                        "socket": endpoint.socket,
+                    }
+                    for endpoint in endpoints.nodes
                 ],
             },
             indent=2,
@@ -641,6 +700,33 @@ def _fleet_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _fleet_cancel_checked(args: argparse.Namespace) -> int:
+    expected = {
+        "task_id": args.task_id,
+        "task_sha256": args.task_sha256,
+        "candidate_sha256": args.candidate_sha256,
+    }
+    if args.run_dir is not None:
+        expected["run_dir"] = args.run_dir
+    response = _request(
+        args.socket,
+        {
+            "op": "cancel_checked",
+            "run_id": args.run_id,
+            "expected": expected,
+        },
+    )
+    if response is None:
+        return 1
+    print(
+        json.dumps(
+            {"cancelled": response["cancelled"], "run": response["run"]},
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def _fleet_fetch(args: argparse.Namespace) -> int:
     output = args.out.expanduser().resolve()
     if output.exists():
@@ -648,7 +734,13 @@ def _fleet_fetch(args: argparse.Namespace) -> int:
         return 1
     try:
         catalog = load_fleet_catalog(args.catalog)
-        node, run_id, route = route_locator_from_receipt(args.route, catalog)
+        endpoints = _load_fleet_endpoints_arg(args, catalog)
+        historical_node, run_id, route = route_locator_from_receipt(
+            args.route, catalog
+        )
+        node, endpoint = resolve_fleet_endpoint(
+            catalog=catalog, node=historical_node, endpoints=endpoints
+        )
         with tempfile.TemporaryDirectory(prefix="kernelinfra-artifact-fetch-") as directory:
             archive_path = Path(directory) / "artifacts.tar"
             fetch_artifact_export(
@@ -666,6 +758,7 @@ def _fleet_fetch(args: argparse.Namespace) -> int:
                     catalog=catalog,
                     route=route,
                     max_bytes=args.max_bytes,
+                    endpoint=endpoint,
                 )
     except (ContractError, KeyError, OSError, RuntimeError, ValueError) as exc:
         print(f"kernelctl: cannot fetch run artifacts: {exc}", file=sys.stderr)
@@ -687,7 +780,10 @@ def _fleet_snapshot(args: argparse.Namespace) -> int:
         return 1
     try:
         catalog = load_fleet_catalog(args.catalog)
-        snapshot = build_fleet_snapshot(catalog=catalog, route_paths=args.routes)
+        endpoints = _load_fleet_endpoints_arg(args, catalog)
+        snapshot = build_fleet_snapshot(
+            catalog=catalog, route_paths=args.routes, endpoints=endpoints
+        )
         if output is not None:
             _atomic_new_json(output, snapshot)
     except (ContractError, OSError, RuntimeError, ValueError) as exc:
@@ -714,10 +810,33 @@ def _fleet_snapshot(args: argparse.Namespace) -> int:
     return 0 if snapshot["summary"]["ok"] else 1
 
 
+def _load_fleet_endpoints_arg(args: argparse.Namespace, catalog):
+    endpoint_path = getattr(args, "endpoints", None)
+    return (
+        load_fleet_endpoints(endpoint_path, catalog)
+        if endpoint_path is not None
+        else None
+    )
+
+
 def _fleet_target(args: argparse.Namespace, catalog):
+    endpoint_path = getattr(args, "endpoints", None)
     if args.route is not None:
-        return route_locator_from_receipt(args.route, catalog)[:2]
-    return parse_locator(catalog, args.locator)
+        historical_node, run_id, route = route_locator_from_receipt(
+            args.route, catalog
+        )
+        endpoints = _load_fleet_endpoints_arg(args, catalog)
+        node, endpoint = resolve_fleet_endpoint(
+            catalog=catalog, node=historical_node, endpoints=endpoints
+        )
+        return node, run_id, route, endpoint
+    if endpoint_path is not None:
+        raise ContractError("fleet endpoint map requires a route receipt")
+    node, run_id = parse_locator(catalog, args.locator)
+    node, endpoint = resolve_fleet_endpoint(
+        catalog=catalog, node=node, endpoints=None
+    )
+    return node, run_id, None, endpoint
 
 
 def _fleet_remote_run(args: argparse.Namespace) -> int:
@@ -727,7 +846,7 @@ def _fleet_remote_run(args: argparse.Namespace) -> int:
         return 1
     try:
         catalog = load_fleet_catalog(args.catalog)
-        node, run_id = _fleet_target(args, catalog)
+        node, run_id, route, endpoint = _fleet_target(args, catalog)
     except (ContractError, ValueError) as exc:
         print(f"kernelctl: {exc}", file=sys.stderr)
         return 1
@@ -736,14 +855,25 @@ def _fleet_remote_run(args: argparse.Namespace) -> int:
     error: str | None = None
     try:
         if operation == "status":
-            value = remote_kernelctl_json(
-                node=node,
-                catalog=catalog,
-                arguments=["status", "--socket", node.socket, "--json", run_id],
-            )
-            if not isinstance(value, list) or len(value) != 1:
-                raise RuntimeError("remote status did not return one run")
-            response = value[0]
+            if route is not None:
+                response = query_route_status(
+                    node=node, catalog=catalog, run_id=run_id, route=route
+                )
+            else:
+                value = remote_kernelctl_json(
+                    node=node,
+                    catalog=catalog,
+                    arguments=[
+                        "status",
+                        "--socket",
+                        node.socket,
+                        "--json",
+                        run_id,
+                    ],
+                )
+                if not isinstance(value, list) or len(value) != 1:
+                    raise RuntimeError("remote status did not return one run")
+                response = value[0]
         elif operation == "wait":
             timeout = float(args.timeout)
             response = remote_kernelctl_json(
@@ -761,19 +891,62 @@ def _fleet_remote_run(args: argparse.Namespace) -> int:
                 timeout_s=max(catalog.command_timeout_s, timeout + 15),
                 allowed_exit_codes=frozenset({0, 3}),
             )
+            if route is not None:
+                response = validate_route_run_response(
+                    response=response,
+                    route=route,
+                    run_id=run_id,
+                    operation="wait",
+                )
         elif operation == "cancel":
-            response = remote_kernelctl_json(
-                node=node,
-                catalog=catalog,
-                arguments=["cancel", "--socket", node.socket, run_id],
-                expect_json=False,
-            )
-            response = {"cancelled": True, **response}
+            if route is not None:
+                arguments = [
+                    "fleet-cancel-checked",
+                    "--socket",
+                    node.socket,
+                    "--task-id",
+                    route["task_id"],
+                    "--task-sha256",
+                    route["task_sha256"],
+                    "--candidate-sha256",
+                    route["candidate_sha256"],
+                ]
+                expected_run_dir = route["remote"]["run"].get("run_dir")
+                if expected_run_dir is not None:
+                    arguments.extend(["--run-dir", expected_run_dir])
+                arguments.append(run_id)
+                response = remote_kernelctl_json(
+                    node=node, catalog=catalog, arguments=arguments
+                )
+                if not isinstance(response, dict) or not isinstance(
+                    response.get("run"), dict
+                ):
+                    raise RuntimeError("checked cancel returned an invalid response")
+                validate_route_run_response(
+                    response=response["run"],
+                    route=route,
+                    run_id=run_id,
+                    operation="cancel",
+                )
+                if not response.get("cancelled"):
+                    raise RuntimeError("run is already terminal or not active")
+            else:
+                cancelled = remote_kernelctl_json(
+                    node=node,
+                    catalog=catalog,
+                    arguments=["cancel", "--socket", node.socket, run_id],
+                    expect_json=False,
+                )
+                response = {"cancelled": True, **cancelled}
         else:
             raise AssertionError(operation)
         if not isinstance(response, dict):
             raise RuntimeError(f"remote {operation} returned a non-object")
-        if operation in {"status", "wait"} and response.get("run_id") != run_id:
+        if (
+            route is None
+            and operation in {"status", "wait"}
+            and response.get("run_id") != run_id
+        ):
             raise RuntimeError(f"remote {operation} run id drift")
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
@@ -784,6 +957,7 @@ def _fleet_remote_run(args: argparse.Namespace) -> int:
         operation=operation,
         response=response,
         error=error,
+        endpoint=endpoint,
     )
     if output is not None:
         try:
@@ -813,7 +987,16 @@ def _fleet_frontier(args: argparse.Namespace) -> int:
         return 1
     try:
         catalog = load_fleet_catalog(args.catalog)
-        node, run_id, route = route_locator_from_receipt(args.route, catalog)
+        endpoints = _load_fleet_endpoints_arg(args, catalog)
+        historical_node, run_id, route = route_locator_from_receipt(
+            args.route, catalog
+        )
+        node, endpoint = resolve_fleet_endpoint(
+            catalog=catalog, node=historical_node, endpoints=endpoints
+        )
+        query_route_status(
+            node=node, catalog=catalog, run_id=run_id, route=route
+        )
         task_path = f"{route['remote']['bundle_dir']}/task.json"
         frontier = remote_kernelctl_json(
             node=node,
@@ -845,6 +1028,7 @@ def _fleet_frontier(args: argparse.Namespace) -> int:
         operation="frontier",
         response=frontier,
         error=error,
+        endpoint=endpoint,
     )
     if output is not None:
         try:

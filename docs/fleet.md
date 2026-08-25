@@ -44,6 +44,50 @@ Static capabilities are declarations, not live evidence. Use them to exclude
 incompatible hardware/toolchains; use node status only for current advisory
 load and deployment affinity.
 
+## Current endpoint map
+
+A route receipt must continue validating against the exact catalog used when
+the run was accepted. If the same node later moves to a new installed
+`kernelctl` or daemon socket, do not edit or re-sign either historical file.
+Create a strict current transport map instead:
+
+```json
+{
+  "schema": "kernelinfra.fleet-endpoints.v1",
+  "nodes": [
+    {
+      "id": "b200",
+      "ssh": "verda-b200x4",
+      "kernelctl": "/opt/kernel-infra/current/bin/kernelctl",
+      "socket": "/run/kernel-infra/control.sock"
+    }
+  ]
+}
+```
+
+```bash
+kernelctl fleet-endpoints-check \
+  --catalog historical-catalog.json current-endpoints.json
+kernelctl fleet-status \
+  --catalog historical-catalog.json \
+  --endpoints current-endpoints.json \
+  --route historical-route.json
+```
+
+The endpoint map owns only current SSH host, executable, and socket for an
+existing catalog node id. It may be used by route-based status, wait, cancel,
+frontier, snapshot, and fetch. It cannot be used by submit or a bare locator,
+cannot add a node absent from the historical catalog, and does not replace
+inbox, capability, task, candidate, or locator facts.
+
+Status, wait, and snapshot validate the exact returned run/task/candidate and
+recorded run directory. Route cancel sends those expected values in one atomic
+daemon request, so identity validation and cancellation share one authority
+boundary. Frontier first runs the same status continuity check. Artifact
+install checks those identities and the manifest run directory. All v2 outputs
+embed the exact endpoint values used. The map adds no digest; it is current
+checked configuration, not historical evidence or node identity.
+
 ## Eligibility and rank
 
 A node is eligible only when:
@@ -107,10 +151,11 @@ only a valid submitted route receipt, reconstructs the node-owned task path from
 the checked inbox/bundle id, and requires the remote frontier task digest to
 match the route.
 
-Each command optionally creates `kernelinfra.remote-observation.v1`, binding
-catalog digest, locator, operation, response/error, timestamp, and canonical
-SHA-256 without overwriting. SSH/daemon/command failure is `unknown`. Route or
-catalog tampering, remote bundle/run drift, and frontier identity drift are
+Each command optionally creates `kernelinfra.remote-observation.v2`, binding
+catalog digest, locator, exact transport endpoint, operation, response/error,
+timestamp, and the existing canonical observation SHA-256 without overwriting.
+SSH/daemon/command failure is `unknown`. Route or catalog tampering, remote
+bundle/run drift, endpoint state-custody drift, and frontier identity drift are
 rejected before use.
 
 ## Parallel route snapshot
@@ -132,7 +177,8 @@ match the route's run, task, and candidate identity. Results are sorted by
 `(node_id, run_id)` and contain exact responses/errors plus derived counts for
 ok, unknown, terminal, nonterminal, and lifecycle states.
 
-The snapshot is a read model, not campaign state. It does not probe for a new
+The `kernelinfra.fleet-snapshot.v2` output is a read model, not campaign state.
+It does not probe for a new
 node, submit, retry, fail over, wait, cancel, fetch, or change any run. A timeout
 or identity mismatch is visible as `unknown` only for that route. If all routes
 are unknown the command writes the requested view but exits 1; any ok route
@@ -163,6 +209,7 @@ then atomically installs a create-only directory:
 ```text
 catalog.json
 route.json
+endpoint.json            exact transport values used for this fetch
 artifact-manifest.json   node-run authority and file inventory
 mirror.json              mirror-only validation statement
 artifacts/               exact node run-directory copy
@@ -177,3 +224,5 @@ are reused rather than fingerprinted again.
 frontier, cancellation, routing load, or failover decisions. A nonterminal run,
 SSH/daemon error, malformed archive, identity mismatch, or existing output path
 fails without creating a successful mirror directory.
+`kernelinfra.artifact-mirror.v2` points to `endpoint.json`; changing software
+reachability does not rewrite the historical catalog or route stored beside it.

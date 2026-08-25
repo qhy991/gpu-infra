@@ -173,6 +173,24 @@ class KernelInfraServer:
         if operation == "cancel":
             cancelled = await self.manager.cancel(str(request["run_id"]))
             return {"ok": True, "cancelled": cancelled}
+        if operation == "cancel_checked":
+            run_id = str(request["run_id"])
+            expected = request.get("expected")
+            required = {"task_id", "task_sha256", "candidate_sha256"}
+            if not isinstance(expected, dict) or not required.issubset(expected):
+                raise ValueError("checked cancel has invalid expected identity")
+            if set(expected) - required - {"run_dir"}:
+                raise ValueError("checked cancel has unexpected identity fields")
+            state = self.manager.store.read_state(run_id)
+            for field, value in expected.items():
+                if not isinstance(value, str) or state.get(field) != value:
+                    raise ValueError(f"checked cancel {field} drift")
+            cancelled = await self.manager.cancel(run_id)
+            return {
+                "ok": True,
+                "cancelled": cancelled,
+                "run": self.manager.store.read_state(run_id),
+            }
         if operation == "frontier":
             task = load_task(Path(request["task"]))
             projection = rebuild_frontier(self.manager.store, task)

@@ -20,6 +20,9 @@ kernelctl fleet-snapshot \
   --catalog examples/fleet/catalog.json \
   --out fleet-snapshot.json \
   routes/*.json
+kernelctl fleet-endpoints-check \
+  --catalog examples/fleet/catalog.json \
+  examples/fleet/endpoints.json
 ```
 
 The dispatcher observes but never owns remote queues. An SSH/daemon/probe
@@ -30,3 +33,8 @@ node-owned rather than copied into every candidate bundle.
 `fleet-snapshot` is the agent-facing parallel read path after submission. It
 prevalidates every route, queries each immutable locator once, and preserves
 per-route unknown failures without adding campaign state or retry behavior.
+
+`fleet-endpoints.v1` is a post-acceptance transport overlay only. It lets an
+immutable historical route reach the same node id after kernelctl/socket
+deployment changes; it never changes selection, inbox, capabilities, or run
+identity, and every use requires the route receipt rather than a bare locator.

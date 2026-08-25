@@ -282,6 +282,26 @@ with per-route `ok` or `unknown` responses and state counts. It creates no
 campaign database or global queue, performs no retry/failover, and adds no new
 digest; node run states remain authoritative.
 
+When software paths or daemon sockets change after acceptance, keep the
+historical catalog and route receipt unchanged and provide a checked current
+endpoint map:
+
+```bash
+kernelctl fleet-endpoints-check \
+  --catalog historical-catalog.json current-endpoints.json
+kernelctl fleet-status \
+  --catalog historical-catalog.json \
+  --endpoints current-endpoints.json \
+  --route route.json
+```
+
+`kernelinfra.fleet-endpoints.v1` may replace only SSH host, kernelctl path, and
+socket for the same node id. It cannot be used for submission or with a bare
+locator. Cancel performs one atomic identity-checked daemon operation; frontier
+preflights the exact historical run, and status/wait/snapshot/artifact validate
+returned identity. Observation, snapshot, and mirror v2 outputs preserve exact
+transport values used without adding an endpoint digest.
+
 ## Evaluator contract
 
 Every stage command receives these explicit environment variables through the

@@ -24,13 +24,14 @@ from .contracts import ContractError, TaskSpec, digest_json, load_task
 from .store import RunStore, TERMINAL_STATES, utc_now
 
 FLEET_SCHEMA = "kernelinfra.fleet.v1"
+FLEET_ENDPOINTS_SCHEMA = "kernelinfra.fleet-endpoints.v1"
 BUNDLE_SCHEMA = "kernelinfra.fleet-bundle.v1"
 ROUTE_SCHEMA = "kernelinfra.route-receipt.v1"
 RECEIVE_SCHEMA = "kernelinfra.fleet-receive.v1"
-REMOTE_OBSERVATION_SCHEMA = "kernelinfra.remote-observation.v1"
+REMOTE_OBSERVATION_SCHEMA = "kernelinfra.remote-observation.v2"
 ARTIFACT_MANIFEST_SCHEMA = "kernelinfra.artifact-manifest.v1"
-ARTIFACT_MIRROR_SCHEMA = "kernelinfra.artifact-mirror.v1"
-FLEET_SNAPSHOT_SCHEMA = "kernelinfra.fleet-snapshot.v1"
+ARTIFACT_MIRROR_SCHEMA = "kernelinfra.artifact-mirror.v2"
+FLEET_SNAPSHOT_SCHEMA = "kernelinfra.fleet-snapshot.v2"
 MAX_BUNDLE_BYTES = 256 * 1024 * 1024
 MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
 MAX_ARTIFACT_FILES = 10_000
@@ -59,6 +60,20 @@ class FleetCatalog:
     command_timeout_s: float
     source_path: Path
     digest: str
+
+
+@dataclass(frozen=True)
+class FleetEndpoint:
+    node_id: str
+    ssh_host: str
+    kernelctl: str
+    socket: str
+
+
+@dataclass(frozen=True)
+class FleetEndpoints:
+    nodes: tuple[FleetEndpoint, ...]
+    source_path: Path
 
 
 class FleetSelectionError(RuntimeError):
@@ -168,6 +183,101 @@ def load_fleet_catalog(path: Path) -> FleetCatalog:
         source_path=source,
         digest=digest_json(raw),
     )
+
+
+def load_fleet_endpoints(path: Path, catalog: FleetCatalog) -> FleetEndpoints:
+    source = path.expanduser().resolve()
+    try:
+        raw = json.loads(source.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ContractError(f"fleet endpoint map not found: {source}") from exc
+    except json.JSONDecodeError as exc:
+        raise ContractError(f"invalid fleet endpoint map JSON at {source}: {exc}") from exc
+    if not isinstance(raw, dict) or set(raw) != {"schema", "nodes"}:
+        raise ContractError("fleet endpoint map has invalid fields")
+    if raw.get("schema") != FLEET_ENDPOINTS_SCHEMA:
+        raise ContractError(
+            f"fleet endpoint map schema must be {FLEET_ENDPOINTS_SCHEMA!r}"
+        )
+    values = raw.get("nodes")
+    if not isinstance(values, list) or not values:
+        raise ContractError("fleet endpoint map nodes must be a non-empty list")
+    catalog_ids = {node.node_id for node in catalog.nodes}
+    nodes: list[FleetEndpoint] = []
+    for index, value in enumerate(values):
+        where = f"fleet_endpoints.nodes[{index}]"
+        if not isinstance(value, dict) or set(value) != {
+            "id",
+            "ssh",
+            "kernelctl",
+            "socket",
+        }:
+            raise ContractError(f"{where} has invalid fields")
+        node_id = value["id"]
+        if not isinstance(node_id, str) or not _ID.fullmatch(node_id):
+            raise ContractError(f"{where}.id is invalid")
+        if node_id not in catalog_ids:
+            raise ContractError(
+                f"{where}.id {node_id!r} is absent from the historical catalog"
+            )
+        ssh_host = value["ssh"]
+        if not isinstance(ssh_host, str) or not _SSH.fullmatch(ssh_host):
+            raise ContractError(f"{where}.ssh is unsafe")
+        nodes.append(
+            FleetEndpoint(
+                node_id=node_id,
+                ssh_host=ssh_host,
+                kernelctl=_safe_remote_path(
+                    value["kernelctl"], f"{where}.kernelctl"
+                ),
+                socket=_safe_remote_path(value["socket"], f"{where}.socket"),
+            )
+        )
+    if len({node.node_id for node in nodes}) != len(nodes):
+        raise ContractError("fleet endpoint map node ids must be unique")
+    return FleetEndpoints(nodes=tuple(nodes), source_path=source)
+
+
+def resolve_fleet_endpoint(
+    *,
+    catalog: FleetCatalog,
+    node: FleetNode,
+    endpoints: FleetEndpoints | None,
+) -> tuple[FleetNode, dict[str, Any]]:
+    if endpoints is None:
+        return node, _endpoint_record(
+            owner="historical-catalog", source=catalog.source_path, node=node
+        )
+    matches = [item for item in endpoints.nodes if item.node_id == node.node_id]
+    if len(matches) != 1:
+        raise ContractError(
+            f"fleet endpoint map has no unique endpoint for {node.node_id!r}"
+        )
+    endpoint = matches[0]
+    effective = FleetNode(
+        node_id=node.node_id,
+        ssh_host=endpoint.ssh_host,
+        kernelctl=endpoint.kernelctl,
+        socket=endpoint.socket,
+        inbox=node.inbox,
+        capabilities=node.capabilities,
+    )
+    return effective, _endpoint_record(
+        owner="fleet-endpoints", source=endpoints.source_path, node=effective
+    )
+
+
+def _endpoint_record(
+    *, owner: str, source: Path, node: FleetNode
+) -> dict[str, Any]:
+    return {
+        "owner": owner,
+        "source": str(source),
+        "node_id": node.node_id,
+        "ssh": node.ssh_host,
+        "kernelctl": node.kernelctl,
+        "socket": node.socket,
+    }
 
 
 def _ssh_base(node: FleetNode, catalog: FleetCatalog) -> list[str]:
@@ -598,6 +708,47 @@ def route_locator_from_receipt(
     return node, run_id, receipt
 
 
+def validate_route_run_response(
+    *, response: Any, route: dict[str, Any], run_id: str, operation: str
+) -> dict[str, Any]:
+    if not isinstance(response, dict):
+        raise RuntimeError(f"remote {operation} returned a non-object")
+    for field, expected in (
+        ("run_id", run_id),
+        ("task_id", route["task_id"]),
+        ("task_sha256", route["task_sha256"]),
+        ("candidate_sha256", route["candidate_sha256"]),
+    ):
+        if response.get(field) != expected:
+            raise RuntimeError(f"remote {operation} {field} drift")
+    expected_run_dir = route["remote"]["run"].get("run_dir")
+    if expected_run_dir is not None and response.get("run_dir") != expected_run_dir:
+        raise RuntimeError(f"remote {operation} run_dir drift")
+    if not isinstance(response.get("state"), str) or not response["state"]:
+        raise RuntimeError(f"remote {operation} has no lifecycle state")
+    return response
+
+
+def query_route_status(
+    *,
+    node: FleetNode,
+    catalog: FleetCatalog,
+    run_id: str,
+    route: dict[str, Any],
+    query: Callable[..., Any] = remote_kernelctl_json,
+) -> dict[str, Any]:
+    value = query(
+        node=node,
+        catalog=catalog,
+        arguments=["status", "--socket", node.socket, "--json", run_id],
+    )
+    if not isinstance(value, list) or len(value) != 1:
+        raise RuntimeError("remote status did not return one run")
+    return validate_route_run_response(
+        response=value[0], route=route, run_id=run_id, operation="status"
+    )
+
+
 def remote_observation_receipt(
     *,
     catalog: FleetCatalog,
@@ -606,7 +757,12 @@ def remote_observation_receipt(
     operation: str,
     response: Any,
     error: str | None,
+    endpoint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if endpoint is None:
+        endpoint = _endpoint_record(
+            owner="historical-catalog", source=catalog.source_path, node=node
+        )
     value = {
         "schema": REMOTE_OBSERVATION_SCHEMA,
         "observed_at": utc_now(),
@@ -614,6 +770,7 @@ def remote_observation_receipt(
         "catalog_sha256": catalog.digest,
         "operation": operation,
         "locator": {"node_id": node.node_id, "run_id": run_id},
+        "endpoint": endpoint,
         "status": "ok" if error is None else "unknown",
         "response": response,
         "error": error,
@@ -625,6 +782,7 @@ def fleet_snapshot(
     *,
     catalog: FleetCatalog,
     route_paths: list[Path],
+    endpoints: FleetEndpoints | None = None,
     query: Callable[..., Any] = remote_kernelctl_json,
 ) -> dict[str, Any]:
     if not route_paths:
@@ -634,51 +792,43 @@ def fleet_snapshot(
             f"fleet snapshot supports at most {MAX_FLEET_SNAPSHOT_ROUTES} routes"
         )
 
-    targets: list[tuple[Path, FleetNode, str, dict[str, Any]]] = []
+    targets: list[
+        tuple[Path, FleetNode, str, dict[str, Any], dict[str, Any]]
+    ] = []
     locators: set[tuple[str, str]] = set()
     # Validate every route before opening any SSH connection. A malformed batch
     # cannot yield a partial view that silently omits an invalid input.
     for path in route_paths:
         source = path.expanduser().resolve()
-        node, run_id, route = route_locator_from_receipt(source, catalog)
-        locator = (node.node_id, run_id)
+        historical_node, run_id, route = route_locator_from_receipt(source, catalog)
+        node, endpoint = resolve_fleet_endpoint(
+            catalog=catalog, node=historical_node, endpoints=endpoints
+        )
+        locator = (historical_node.node_id, run_id)
         if locator in locators:
             raise ContractError(
                 f"fleet snapshot contains duplicate locator {node.node_id}:{run_id}"
             )
         locators.add(locator)
-        targets.append((source, node, run_id, route))
+        targets.append((source, node, run_id, route, endpoint))
     targets.sort(key=lambda item: (item[1].node_id, item[2]))
 
     def observe(
-        target: tuple[Path, FleetNode, str, dict[str, Any]]
+        target: tuple[
+            Path, FleetNode, str, dict[str, Any], dict[str, Any]
+        ]
     ) -> dict[str, Any]:
-        source, node, run_id, route = target
+        source, node, run_id, route, endpoint = target
         response: dict[str, Any] | None = None
         error: str | None = None
         try:
-            value = query(
+            response = query_route_status(
                 node=node,
                 catalog=catalog,
-                arguments=["status", "--socket", node.socket, "--json", run_id],
+                run_id=run_id,
+                route=route,
+                query=query,
             )
-            if (
-                not isinstance(value, list)
-                or len(value) != 1
-                or not isinstance(value[0], dict)
-            ):
-                raise RuntimeError("remote status did not return one run")
-            response = value[0]
-            for field, expected in (
-                ("run_id", run_id),
-                ("task_id", route["task_id"]),
-                ("task_sha256", route["task_sha256"]),
-                ("candidate_sha256", route["candidate_sha256"]),
-            ):
-                if response.get(field) != expected:
-                    raise RuntimeError(f"remote status {field} drift")
-            if not isinstance(response.get("state"), str) or not response["state"]:
-                raise RuntimeError("remote status has no lifecycle state")
         except Exception as exc:
             response = None
             error = f"{type(exc).__name__}: {exc}"
@@ -686,6 +836,7 @@ def fleet_snapshot(
             "route": str(source),
             "route_receipt_sha256": route["route_receipt_sha256"],
             "locator": {"node_id": node.node_id, "run_id": run_id},
+            "endpoint": endpoint,
             "status": "ok" if error is None else "unknown",
             "response": response,
             "error": error,
@@ -1023,6 +1174,7 @@ def install_artifact_mirror(
     catalog: FleetCatalog,
     route: dict[str, Any],
     max_bytes: int,
+    endpoint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     output = destination.expanduser().resolve()
     if output.exists():
@@ -1044,11 +1196,20 @@ def install_artifact_mirror(
         for field, expected in identity_pairs:
             if manifest.get(field) != expected:
                 raise RuntimeError(f"artifact manifest {field} disagrees with route")
+        expected_run_dir = route["remote"]["run"].get("run_dir")
+        if expected_run_dir is not None and manifest.get("run_dir") != expected_run_dir:
+            raise RuntimeError("artifact manifest run_dir disagrees with route")
+        if endpoint is None:
+            historical_node = fleet_node(catalog, locator["node_id"])
+            _node, endpoint = resolve_fleet_endpoint(
+                catalog=catalog, node=historical_node, endpoints=None
+            )
         catalog_raw = json.loads(catalog.source_path.read_text(encoding="utf-8"))
         if digest_json(catalog_raw) != catalog.digest:
             raise RuntimeError("fleet catalog changed during artifact fetch")
         RunStore.atomic_json(staging / "catalog.json", catalog_raw, mode=0o600)
         RunStore.atomic_json(staging / "route.json", route, mode=0o600)
+        RunStore.atomic_json(staging / "endpoint.json", endpoint, mode=0o600)
         value = {
             "schema": ARTIFACT_MIRROR_SCHEMA,
             "authority": "mirror-only",
@@ -1058,6 +1219,7 @@ def install_artifact_mirror(
                 "node_id": locator["node_id"],
                 "run_id": locator["run_id"],
             },
+            "transport_endpoint": "endpoint.json",
             "artifact_manifest": "artifact-manifest.json",
             "artifact_root": "artifacts",
             "validation": "passed",

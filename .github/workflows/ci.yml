@@ -32,3 +32,6 @@ jobs:
           kernelctl task-check examples/kda_report_import/task.json
           kernelctl service-check examples/fibserve_service/service.json
           kernelctl fleet-check examples/fleet/catalog.json
+          kernelctl fleet-endpoints-check \
+            --catalog examples/fleet/catalog.json \
+            examples/fleet/endpoints.json

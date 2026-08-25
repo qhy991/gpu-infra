@@ -53,7 +53,70 @@ class FakeServices:
         ]
 
 
+class FakeCheckedStore:
+    def __init__(self, root: Path):
+        self.root = root
+        self.state = {
+            "run_id": "checked-run",
+            "task_id": "task",
+            "task_sha256": "1" * 64,
+            "candidate_sha256": "2" * 64,
+            "run_dir": "/srv/state/runs/checked-run",
+            "state": "running",
+        }
+
+    def read_state(self, run_id):
+        if run_id != self.state["run_id"]:
+            raise KeyError(run_id)
+        return dict(self.state)
+
+
+class FakeCheckedManager:
+    def __init__(self, root: Path):
+        self.store = FakeCheckedStore(root)
+        self.broker_socket = root / "broker.sock"
+        self.cancel_calls = []
+
+    async def cancel(self, run_id):
+        self.cancel_calls.append(run_id)
+        self.store.state["state"] = "cancelled"
+        return True
+
+
 class NodeStatusTests(unittest.IsolatedAsyncioTestCase):
+    async def test_checked_cancel_validates_identity_before_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manager = FakeCheckedManager(root)
+            server = KernelInfraServer(manager, FakeServices(), root / "kernel.sock")
+            expected = {
+                "task_id": "task",
+                "task_sha256": "1" * 64,
+                "candidate_sha256": "2" * 64,
+                "run_dir": "/srv/state/runs/checked-run",
+            }
+            wrong = {**expected, "candidate_sha256": "3" * 64}
+            with self.assertRaisesRegex(ValueError, "candidate_sha256 drift"):
+                await server._dispatch(
+                    {
+                        "op": "cancel_checked",
+                        "run_id": "checked-run",
+                        "expected": wrong,
+                    }
+                )
+            self.assertEqual(manager.cancel_calls, [])
+
+            response = await server._dispatch(
+                {
+                    "op": "cancel_checked",
+                    "run_id": "checked-run",
+                    "expected": expected,
+                }
+            )
+            self.assertTrue(response["cancelled"])
+            self.assertEqual(response["run"]["state"], "cancelled")
+            self.assertEqual(manager.cancel_calls, ["checked-run"])
+
     async def test_node_status_is_a_read_only_projection(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

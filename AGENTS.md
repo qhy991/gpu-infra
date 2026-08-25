@@ -57,6 +57,11 @@
   receipts and fixed-node status observations. It must not become campaign
   state, a global queue, a retry owner, or a second run lifecycle authority;
   one failed node remains a visible per-route unknown.
+- A current fleet endpoint map may replace only SSH host, kernelctl path, and
+  daemon socket for the same historical node id after route acceptance. The
+  original catalog/route still own selection, inbox, locator, and run identity;
+  endpoint replacement requires a route and must prove continuity against that
+  exact node-owned run before mutation or derived queries.
 - New SHA-256 fields, fingerprints, and repeated whole-tree hashing are
   prohibited by default. Use SHA-256 only when it is required for a real
   integrity or content-addressing boundary, replaces a materially more

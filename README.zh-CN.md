@@ -204,6 +204,24 @@ Agent 并行探索多个候选时，可用 `fleet-snapshot` 先完整校验并�
 计数的派生当前视图；它不创建 campaign database 或全局队列，不 retry/failover，也不
 增加新摘要，run lifecycle 仍由各节点拥有。
 
+节点软件路径或 daemon socket 在 run 接受后变化时，保留历史 catalog 与 route receipt
+原文不变，另传 checked current endpoint map：
+
+```bash
+kernelctl fleet-endpoints-check \
+  --catalog historical-catalog.json current-endpoints.json
+kernelctl fleet-status \
+  --catalog historical-catalog.json \
+  --endpoints current-endpoints.json \
+  --route route.json
+```
+
+`kernelinfra.fleet-endpoints.v1` 只能为同一 node id 替换 SSH host、kernelctl path 与
+socket；不能用于 submit，也不能和裸 locator 一起使用。cancel 使用一次原子 identity-
+checked daemon 操作，frontier 先验证原 route 的精确 run，status/wait/snapshot/
+artifact 也会验证返回身份。
+observation、snapshot 与 mirror v2 保存实际 transport 值，但不增加 endpoint 摘要。
+
 每次候选请求前后，adapter 都会复核 broker peer、独占 job/GPU、launch spec、
 executable/environment digest、健康 worker、service root，以及干净源码 checkout
 的 commit/tree。`service-attest` 仍可导入外部手工启动的 broker-held service。
