@@ -17,7 +17,7 @@ global run database or scheduler queue.
 ## Node status
 
 Each node daemon serves `kernelinfra.node-status.v1` through its existing Unix
-socket. The projection includes KernelInfra/daemon identity, state-disk bytes,
+socket. The projection includes GPU Infra daemon identity, state-disk bytes,
 active runs, service states/consumer counts, ready deployment ids, and a bounded
 broker GPU/running/queue snapshot.
 

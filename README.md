@@ -1,6 +1,6 @@
-# Kernel Infra
+# GPU Infra
 
-Kernel Infra is the durable control and evidence plane between coding agents,
+GPU Infra is the durable control and evidence plane between coding agents,
 independent kernel evaluators, and the machine-local
 [`agent-gpu-broker`](agent-gpu-broker). An agent submits a task and a bounded
 candidate directory, immediately receives a run id, and can continue exploring
@@ -12,7 +12,7 @@ The first release deliberately reuses existing owners:
   evaluation, and profiling.
 - KDA keeps its fast/full independent judge and workload-specific scoring.
 - `agent-gpu-broker` is the only component that allocates a GPU.
-- Kernel Infra snapshots inputs, drives staged judges, persists receipts, and
+- GPU Infra snapshots inputs, drives staged judges, persists receipts, and
   derives the per-workload frontier.
 
 See [DESIGN.md](DESIGN.md) for the current v0.16 contract and
@@ -116,7 +116,7 @@ kernel. The guard then terminates and reaps the actual child process group.
 Container evaluators additionally use deterministic names and labels so signal
 cleanup removes the Docker daemon object, not only its CLI process.
 
-On restart, Kernel Infra first reconciles every persisted broker job id through
+On restart, GPU Infra first reconciles every persisted broker job id through
 the broker socket. Only after that succeeds are unfinished runs made terminal as
 `interrupted`; they are never automatically replayed.
 
@@ -389,7 +389,7 @@ broker:
 The judge writes `KERNELINFRA_RESULT` using schema
 `kernelinfra.stage-result.v1`. See the A800 smoke evaluator for a complete
 example. FIBServe and KDA adapters are included without moving evaluator
-semantics or factual ledgers into Kernel Infra.
+semantics or factual ledgers into GPU Infra.
 
 ## Tests
 

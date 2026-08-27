@@ -1,4 +1,4 @@
-# Kernel Infra
+# GPU Infra
 
 ## Ownership
 
@@ -12,7 +12,7 @@
 - `src/kernel_infra/adapters/cuda_container.py` is the canonical owner of
   Docker/NVCC lifecycle policy. Operator examples own only their task, harness,
   ABI, candidates, and task-specific oracle/measurement semantics.
-- A task's named judge owns correctness and raw measurements. Kernel Infra may
+- A task's named judge owns correctness and raw measurements. GPU Infra may
   validate and reduce judge output, but must not silently reinterpret a failed
   or missing judge result as success.
 - `frontier.json` is a rebuildable projection. Per-run receipts and judge

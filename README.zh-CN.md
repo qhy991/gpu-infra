@@ -1,4 +1,4 @@
-# GPU Infra（Kernel Infra）
+# GPU Infra
 
 [English](README.md) | [Agent Skill](skills/gpu-infra/SKILL.md) | [GitHub](https://github.com/qhy991/gpu-infra)
 
@@ -67,7 +67,7 @@ agent-gpu-broker/bin/gpuq serve --gpus 0 --shared-capacity 2
 ```
 
 ```bash
-# 终端 2：Kernel Infra 控制面
+# 终端 2：GPU Infra 控制面
 kernelctl serve \
   --gpu-run "$PWD/agent-gpu-broker/bin/gpu-run" \
   --local-capacity 2

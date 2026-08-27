@@ -1,4 +1,4 @@
-# Kernel Infra v0.16 design contract
+# GPU Infra v0.16 design contract
 
 ## Goal
 
@@ -69,7 +69,7 @@ set.
 | Broker runtime/version/instance | live broker status |
 | gpu-run argument capabilities | selected client executable preflight |
 
-Kernel Infra never edits evaluator code, selects a winner from agent prose, or
+GPU Infra never edits evaluator code, selects a winner from agent prose, or
 uses a live aggregate score as the factual timing owner.
 
 Operator tasks remain data and bounded judge assets: each owns its ABI, trusted
@@ -345,7 +345,7 @@ environment digests plus live broker/service/source custody. Files referenced by
 the admitted argv—dataset, model, image, config, and compatibility assets—remain
 task-owned identities and must be fingerprinted by the task/evaluator rather
 than inferred from path names. Fleet transport requires tasks with absolute
-remote judge cwd paths; it does not copy evaluator installations. Kernel Infra
+remote judge cwd paths; it does not copy evaluator installations. GPU Infra
 does not provide hostile tenant isolation, a global queue,
 priority/preemption, GPU memory quotas, automatic agent spawning, evaluator
 implementation, automatic reroute/failover after acceptance, or live-command

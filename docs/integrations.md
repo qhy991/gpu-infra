@@ -1,6 +1,6 @@
 # Existing evaluator integration
 
-Kernel Infra owns transport, immutable snapshots, lifecycle, typed evidence,
+GPU Infra owns transport, immutable snapshots, lifecycle, typed evidence,
 and derived frontier decisions. PTXBench/FIBServe and KDA remain the factual
 owners of their evaluator semantics and raw results; the GPU broker remains the
 only allocator.
@@ -192,7 +192,7 @@ See `examples/kda_report_import/` for the checked template.
 
 The canonical CUDA image contract owns both platform manifest and config
 digest. Docker overlay2 normally reports the config as `.Id`; Docker's
-containerd image store may report the manifest instead. Kernel Infra accepts
+containerd image store may report the manifest instead. GPU Infra accepts
 the latter only when `RepoDigests` contains the exact registry name and platform
 manifest. Results always preserve actual runtime ID, config, and manifest, so
 backend representation differences do not weaken image identity.
