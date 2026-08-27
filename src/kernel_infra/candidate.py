@@ -46,11 +46,23 @@ def validate_candidate(source: Path) -> Path:
     return source
 
 
+# A broker that runs stage judges under its own identity must be able to read
+# the snapshotted candidate. Fleet transport installs bundle files 0600, which
+# locks that judge out. Deployments that need it widen this; unset is unchanged.
+_SNAPSHOT_FILE_MODE = os.environ.get("KERNELINFRA_RUN_FILE_MODE")
+
+
+def _relax(path) -> None:
+    if _SNAPSHOT_FILE_MODE:
+        os.chmod(path, int(_SNAPSHOT_FILE_MODE, 8))
+
+
 def snapshot_candidate(source: Path, destination: Path) -> str:
     source = validate_candidate(source)
     destination.mkdir(parents=True, exist_ok=False)
     if source.is_file():
         shutil.copy2(source, destination / source.name)
+        _relax(destination / source.name)
     elif source.is_dir():
         _copy_directory(source, destination)
     return hash_snapshot(destination)
@@ -78,6 +90,7 @@ def _copy_directory(source: Path, destination: Path) -> None:
             if not child.is_file():
                 raise CandidateError(f"candidate contains special file: {child}")
             shutil.copy2(child, target_root / name)
+            _relax(target_root / name)
 
 
 def hash_snapshot(root: Path) -> str:

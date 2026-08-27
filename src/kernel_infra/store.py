@@ -23,6 +23,14 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# A broker may run stage judges under its own identity rather than the
+# submitting user (agent-gpu-broker uses uid gpuq). A 0700 run directory then
+# locks every broker stage out of its own result path. Deployments that need it
+# widen this to the broker group; the default is unchanged.
+_RUN_DIR_MODE = int(os.environ.get("KERNELINFRA_RUN_DIR_MODE", "755"), 8)
+_RUN_FILE_MODE = int(os.environ.get("KERNELINFRA_RUN_FILE_MODE", "644"), 8)
+
+
 class RunStore:
     def __init__(self, root: Path) -> None:
         self.root = root.expanduser().resolve()
@@ -40,13 +48,13 @@ class RunStore:
     ) -> dict[str, Any]:
         run_id = f"{task.task_id}-{uuid.uuid4().hex[:12]}"
         run_dir = self.run_dir(run_id)
-        run_dir.mkdir(mode=0o755)
+        run_dir.mkdir(mode=_RUN_DIR_MODE)
         try:
             candidate_digest = snapshot_candidate(candidate, run_dir / "candidate")
         except Exception:
             shutil.rmtree(run_dir)
             raise
-        self.atomic_json(run_dir / "task.json", task.raw, mode=0o644)
+        self.atomic_json(run_dir / "task.json", task.raw, mode=_RUN_FILE_MODE)
         request = {
             "schema": "kernelinfra.request.v1",
             "run_id": run_id,
@@ -81,7 +89,7 @@ class RunStore:
                 for stage in task.stages
             ],
         }
-        self.atomic_json(run_dir / "request.json", request, mode=0o644)
+        self.atomic_json(run_dir / "request.json", request, mode=_RUN_FILE_MODE)
         state = {
             "schema": "kernelinfra.state.v1",
             "run_id": run_id,
