@@ -6,7 +6,7 @@
     {
       "id": "a800",
       "ssh": "A800",
-      "kernelctl": "/path/to/KernelInfra/bin/kernelctl",
+      "kernelctl": "/path/to/gpu-infra/bin/kernelctl",
       "socket": "/tmp/kernel-infra.sock",
       "inbox": "/path/to/kernelinfra-fleet-inbox",
       "capabilities": ["a800", "cuda", "sm80"]
@@ -14,7 +14,7 @@
     {
       "id": "b200",
       "ssh": "verda-b200x4",
-      "kernelctl": "/path/to/KernelInfra/bin/kernelctl",
+      "kernelctl": "/path/to/gpu-infra/bin/kernelctl",
       "socket": "/tmp/kernel-infra.sock",
       "inbox": "/path/to/kernelinfra-fleet-inbox",
       "capabilities": ["b200", "cuda", "sm100a", "fibserve"]

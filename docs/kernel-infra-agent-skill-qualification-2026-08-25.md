@@ -16,7 +16,7 @@ without creating another scheduler, evidence owner, or mutable campaign model.
 - Required entrypoint: `skills/kernel-infra/SKILL.md`.
 - UI metadata: `skills/kernel-infra/agents/openai.yaml`.
 - Local installation:
-  `~/.codex/skills/kernel-infra -> <KernelInfra>/skills/kernel-infra`.
+  `~/.codex/skills/kernel-infra -> <gpu-infra>/skills/kernel-infra`.
 
 The installation is a symbolic link, not a copy. Repository updates therefore
 change the discovered skill through the same canonical source and cannot leave

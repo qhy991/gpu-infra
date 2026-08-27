@@ -75,7 +75,7 @@ For local automatic discovery, link this canonical directory into the Codex
 skills directory rather than copying it:
 
 ```bash
-ln -s /path/to/KernelInfra/skills/kernel-infra \
+ln -s /path/to/gpu-infra/skills/kernel-infra \
   "${CODEX_HOME:-$HOME/.codex}/skills/kernel-infra"
 ```
 

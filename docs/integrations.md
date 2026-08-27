@@ -123,7 +123,7 @@ A task then uses an `execution: service` judge with no per-request GPU resource:
   "execution": "service",
   "judge": {
     "identity": "PTXBench@<commit>+FIBServe@<commit-or-image>+dataset@<digest>+admission@sha256:<launch-spec>+executable@sha256:<executable>+deployment-receipt@sha256:<canonical-receipt>",
-    "cwd": "/path/to/KernelInfra",
+    "cwd": "/path/to/gpu-infra",
     "command": [
       "bin/kernelinfra-fibserve",
       "--deployment-receipt", "/path/to/deployment.json",
