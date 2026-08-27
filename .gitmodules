@@ -1,0 +1,3 @@
+[submodule "agent-gpu-broker"]
+	path = agent-gpu-broker
+	url = git@github.com:qhy991/agent-gpu-broker.git
