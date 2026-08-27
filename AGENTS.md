@@ -85,6 +85,15 @@
 - Treat connection, broker, timeout, missing-result, and malformed-result
   failures as `unknown` validity and fail closed for frontier admission.
 
+## Remote fleet qualification
+
+- Qualify the complete remote transport before submission: exact remote gpu-infra version, daemon socket, broker identity, state-disk capacity, absolute judge paths, native/container toolchain, and inbox write access under the identity that executes `fleet-receive`.
+- Run remote control commands as the daemon/inbox owner. On root-squashed shared storage, a root SSH login must delegate `kernelctl` and inbox writes to that owner; preserve and rename any failed partial transport directory instead of overwriting it.
+- Fleet SSH output must be clean machine-readable output. Login banners, shell startup text, alias-resolution failure, or a Codex shell that drops the configured SSH wrapper are `probe_unknown`; never continue to route selection.
+- Deploy a new qualification daemon with an isolated checkout, socket, state, and inbox unless replacement of a production daemon was explicitly authorized. Reuse the existing broker rather than creating a second allocator.
+- A task, candidate snapshot, harness, and judge must share one concrete callable ABI and exactly the same workload IDs. Validate the concrete dtype/index instantiation matrix before candidate measurement; do not accept uninstantiated templates as compile evidence.
+- A custom judge must emit the checked stage-result schema without assuming optional harness fields. Parser/schema mismatch is infrastructure `unknown`, while compiler or correctness rejection is `invalid`; preserve each attempt under a new task/route identity.
+
 ## Scope
 
 - The current trust boundary is cooperating agents under one Unix identity.
@@ -92,4 +101,4 @@
   `skills/kernel-infra/SKILL.md`; it is the agent-facing workflow entrypoint,
   while this file and the checked contracts/docs remain authoritative.
 - Add a new backend or policy only for a concrete evaluator or hardware need.
-- Run `python3 -m unittest discover -s tests -v` before committing.
+- In an uninstalled checkout, run `PYTHONPATH=src python3 -m unittest discover -s tests -v` before committing; a bare invocation does not import the `src/` layout.
