@@ -22,9 +22,9 @@ class ServiceStore:
     def create_deployment(self, spec: ManagedServiceSpec) -> dict[str, Any]:
         deployment_id = f"{spec.service_id}-{uuid.uuid4().hex[:12]}"
         directory = self.deployment_dir(deployment_id)
-        directory.mkdir(mode=0o700)
+        directory.mkdir(mode=0o755)
         accepted_at = utc_now()
-        RunStore.atomic_json(directory / "spec.json", spec.raw, mode=0o600)
+        RunStore.atomic_json(directory / "spec.json", spec.raw, mode=0o644)
         request = {
             "schema": "kernelinfra.service-request.v1",
             "deployment_id": deployment_id,
@@ -51,7 +51,7 @@ class ServiceStore:
             "readiness_timeout_s": spec.readiness_timeout_s,
             "idle_grace_s": spec.idle_grace_s,
         }
-        RunStore.atomic_json(directory / "request.json", request, mode=0o600)
+        RunStore.atomic_json(directory / "request.json", request, mode=0o644)
         state = {
             "schema": "kernelinfra.service-state.v1",
             "deployment_id": deployment_id,

@@ -40,13 +40,13 @@ class RunStore:
     ) -> dict[str, Any]:
         run_id = f"{task.task_id}-{uuid.uuid4().hex[:12]}"
         run_dir = self.run_dir(run_id)
-        run_dir.mkdir(mode=0o700)
+        run_dir.mkdir(mode=0o755)
         try:
             candidate_digest = snapshot_candidate(candidate, run_dir / "candidate")
         except Exception:
             shutil.rmtree(run_dir)
             raise
-        self.atomic_json(run_dir / "task.json", task.raw, mode=0o600)
+        self.atomic_json(run_dir / "task.json", task.raw, mode=0o644)
         request = {
             "schema": "kernelinfra.request.v1",
             "run_id": run_id,
@@ -81,7 +81,7 @@ class RunStore:
                 for stage in task.stages
             ],
         }
-        self.atomic_json(run_dir / "request.json", request, mode=0o600)
+        self.atomic_json(run_dir / "request.json", request, mode=0o644)
         state = {
             "schema": "kernelinfra.state.v1",
             "run_id": run_id,
