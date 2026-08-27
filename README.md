@@ -2,7 +2,7 @@
 
 Kernel Infra is the durable control and evidence plane between coding agents,
 independent kernel evaluators, and the machine-local
-[`agent-gpu-broker`](../agent-gpu-broker). An agent submits a task and a bounded
+[`agent-gpu-broker`](agent-gpu-broker). An agent submits a task and a bounded
 candidate directory, immediately receives a run id, and can continue exploring
 while correctness checks and clean-card benchmarks queue in the background.
 
@@ -70,6 +70,9 @@ The versioned agent entrypoint is
 FIBServe reuse, batch observation/collection, evidence interpretation, remote
 qualification, and fail-closed diagnosis. The skill routes to the commands in
 the current checkout and does not replace task/evaluator/broker ownership.
+Downstream kernel repositories can copy the focused
+[`AGENTS.md` snippet](docs/AGENTS.kernel-infra.snippet.md) to make this trigger
+and its safety boundary explicit for coding agents.
 
 For local automatic discovery, link this canonical directory into the Codex
 skills directory rather than copying it:
@@ -84,9 +87,9 @@ ln -s /path/to/gpu-infra/skills/kernel-infra \
 Start the existing broker first, then the control daemon:
 
 ```bash
-../agent-gpu-broker/bin/gpuq serve --gpus 1 --shared-capacity 2
+agent-gpu-broker/bin/gpuq serve --gpus 0 --shared-capacity 2
 bin/kernelctl serve \
-  --gpu-run ../agent-gpu-broker/bin/gpu-run \
+  --gpu-run agent-gpu-broker/bin/gpu-run \
   --local-capacity 2
 ```
 
