@@ -56,7 +56,7 @@ The v0.15.0 terminal multi-route collection qualification is
 The v0.16.0 managed-service compatibility preflight qualification is
 [the service-preflight report](docs/v0.16.0-service-preflight-qualification-2026-08-25.md).
 The versioned Agent workflow entrypoint is covered by
-[the Kernel Infra skill qualification](docs/kernel-infra-agent-skill-qualification-2026-08-25.md).
+[the GPU Infra skill qualification](docs/gpu-infra-agent-skill-qualification-2026-08-27.md).
 The current default-branch, production-deployment, and promotion boundary is
 recorded in [the v0.16 release-readiness audit](docs/v0.16.0-release-readiness-2026-08-25.md).
 The evaluator adapters and their trust boundaries are documented in
@@ -65,21 +65,21 @@ The evaluator adapters and their trust boundaries are documented in
 ## Agent skill
 
 The versioned agent entrypoint is
-[`skills/kernel-infra/SKILL.md`](skills/kernel-infra/SKILL.md). Invoke
-`$kernel-infra` for task validation, local or fleet submission, managed
+[`skills/gpu-infra/SKILL.md`](skills/gpu-infra/SKILL.md). Invoke
+`$gpu-infra` for task validation, local or fleet submission, managed
 FIBServe reuse, batch observation/collection, evidence interpretation, remote
 qualification, and fail-closed diagnosis. The skill routes to the commands in
 the current checkout and does not replace task/evaluator/broker ownership.
 Downstream kernel repositories can copy the focused
-[`AGENTS.md` snippet](docs/AGENTS.kernel-infra.snippet.md) to make this trigger
+[`AGENTS.md` snippet](docs/AGENTS.gpu-infra.snippet.md) to make this trigger
 and its safety boundary explicit for coding agents.
 
 For local automatic discovery, link this canonical directory into the Codex
 skills directory rather than copying it:
 
 ```bash
-ln -s /path/to/gpu-infra/skills/kernel-infra \
-  "${CODEX_HOME:-$HOME/.codex}/skills/kernel-infra"
+ln -s /path/to/gpu-infra/skills/gpu-infra \
+  "${CODEX_HOME:-$HOME/.codex}/skills/gpu-infra"
 ```
 
 ## Quick start

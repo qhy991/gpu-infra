@@ -1,11 +1,11 @@
 ---
-name: kernel-infra
-description: "Operate Kernel Infra for agent-driven CUDA/kernel evaluation: validate task contracts, submit one or many immutable candidates, monitor fixed-node runs, collect evidence, manage broker-held FIBServe services, and diagnose A800/B200 fleet or GPU-broker failures. Use for KernelInfra, kernelctl, PTXBench/FIBServe, KDA imports, or agent-gpu-broker-backed experiments; do not use for ordinary kernel editing without an evaluation or infrastructure task."
+name: gpu-infra
+description: "Operate GPU Infra for agent-driven CUDA/kernel evaluation: validate task contracts, submit one or many immutable candidates, monitor fixed-node runs, collect evidence, manage broker-held FIBServe services, and diagnose A800/B200 fleet or GPU-broker failures. Use for GPU Infra, the gpu-infra repository, kernelctl, PTXBench/FIBServe, KDA imports, or agent-gpu-broker-backed experiments; do not use for ordinary kernel editing without an evaluation or infrastructure task."
 ---
 
-# Kernel Infra
+# GPU Infra
 
-Use Kernel Infra as the control and evidence plane between coding agents,
+Use GPU Infra as the control and evidence plane between coding agents,
 independent evaluators, and the machine-local GPU broker. Preserve the existing
 owners:
 
@@ -18,7 +18,7 @@ owners:
 
 ## Before acting
 
-1. Locate the active KernelInfra checkout and read its nearest `AGENTS.md`.
+1. Locate the active `gpu-infra` checkout and read its nearest `AGENTS.md`.
    Treat the current checkout, `kernel_infra.__version__`, `kernelctl --help`,
    task/service JSON, and live node state as authoritative. If this skill and
    the checkout differ, follow the checkout.

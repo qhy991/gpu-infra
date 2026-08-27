@@ -1,6 +1,6 @@
 # GPU Infra（Kernel Infra）
 
-[English](README.md) | [Agent Skill](skills/kernel-infra/SKILL.md) | [GitHub](https://github.com/qhy991/gpu-infra)
+[English](README.md) | [Agent Skill](skills/gpu-infra/SKILL.md) | [GitHub](https://github.com/qhy991/gpu-infra)
 
 GPU Infra 是面向编码 Agent 的 GPU kernel 评测基础设施。Agent 提交 task 和候选目录后会立即获得 run id；编译、正确性检查和性能测试在后台排队执行，因此 Agent 可以继续生成和提交其他候选，不必占着 GPU 等待。
 
@@ -41,21 +41,21 @@ git submodule update --init --recursive
 
 ## 让 Agent 知道如何使用
 
-仓库中的 [`skills/kernel-infra/SKILL.md`](skills/kernel-infra/SKILL.md) 是 Agent 的规范入口。Codex 可通过符号链接安装它，避免复制后产生两份说明：
+仓库中的 [`skills/gpu-infra/SKILL.md`](skills/gpu-infra/SKILL.md) 是 Agent 的规范入口。Codex 可通过符号链接安装它，避免复制后产生两份说明：
 
 ```bash
-KERNEL_INFRA_SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"
-mkdir -p "$KERNEL_INFRA_SKILLS_DIR"
-ln -s "$PWD/skills/kernel-infra" "$KERNEL_INFRA_SKILLS_DIR/kernel-infra"
+GPU_INFRA_SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"
+mkdir -p "$GPU_INFRA_SKILLS_DIR"
+ln -s "$PWD/skills/gpu-infra" "$GPU_INFRA_SKILLS_DIR/gpu-infra"
 ```
 
 随后可直接要求 Agent：
 
 ```text
-使用 $kernel-infra 校验这个 task，并行提交这些候选；异步观察并回收终态证据，不要阻塞后续探索。
+使用 $gpu-infra 校验这个 task，并行提交这些候选；异步观察并回收终态证据，不要阻塞后续探索。
 ```
 
-下游 kernel 项目还可以把 [`docs/AGENTS.kernel-infra.snippet.md`](docs/AGENTS.kernel-infra.snippet.md) 中的代码块复制到自己的 `AGENTS.md`。该片段只声明触发条件和安全边界，完整流程仍由 Skill 维护。
+下游 kernel 项目还可以把 [`docs/AGENTS.gpu-infra.snippet.md`](docs/AGENTS.gpu-infra.snippet.md) 中的代码块复制到自己的 `AGENTS.md`。该片段只声明触发条件和安全边界，完整流程仍由 Skill 维护。
 
 ## 单机：最小闭环
 
@@ -161,7 +161,7 @@ kernelctl service-stop "$deployment_id"
 ## 更多资料
 
 - 架构、所有权和非目标：[DESIGN.md](DESIGN.md)
-- Agent 完整操作流程：[skills/kernel-infra/SKILL.md](skills/kernel-infra/SKILL.md)
+- Agent 完整操作流程：[skills/gpu-infra/SKILL.md](skills/gpu-infra/SKILL.md)
 - Fleet 合同：[docs/fleet.md](docs/fleet.md)
 - PTXBench/FIBServe/KDA 集成边界：[docs/integrations.md](docs/integrations.md)
 - 已完成的版本和验收记录：[CHANGELOG.md](CHANGELOG.md)、[docs/](docs/)

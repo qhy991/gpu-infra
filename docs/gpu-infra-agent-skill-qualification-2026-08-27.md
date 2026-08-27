@@ -1,9 +1,9 @@
-# Kernel Infra agent-skill qualification — 2026-08-25
+# GPU Infra agent-skill qualification — 2026-08-27
 
 ## Verdict
 
 The repository now contains one versioned, automatically discoverable Agent
-entrypoint at `skills/kernel-infra/SKILL.md`. It passed the Codex skill
+entrypoint at `skills/gpu-infra/SKILL.md`. It passed the Codex skill
 validator from both its canonical repository path and the installed local
 skill path.
 
@@ -12,18 +12,18 @@ without creating another scheduler, evidence owner, or mutable campaign model.
 
 ## Canonical ownership and installation
 
-- Canonical source: `skills/kernel-infra/` in this repository.
-- Required entrypoint: `skills/kernel-infra/SKILL.md`.
-- UI metadata: `skills/kernel-infra/agents/openai.yaml`.
+- Canonical source: `skills/gpu-infra/` in this repository.
+- Required entrypoint: `skills/gpu-infra/SKILL.md`.
+- UI metadata: `skills/gpu-infra/agents/openai.yaml`.
 - Local installation:
-  `~/.codex/skills/kernel-infra -> <gpu-infra>/skills/kernel-infra`.
+  `~/.codex/skills/gpu-infra -> <gpu-infra>/skills/gpu-infra`.
 
 The installation is a symbolic link, not a copy. Repository updates therefore
 change the discovered skill through the same canonical source and cannot leave
 a second stale instruction tree.
 
-Automatic invocation remains enabled. The description is limited to
-KernelInfra/kernelctl, PTXBench/FIBServe or KDA evaluation integration, fleet
+Automatic invocation remains enabled. The description is limited to GPU
+Infra/kernelctl, PTXBench/FIBServe or KDA evaluation integration, fleet
 operation, and agent-gpu-broker-backed experiments; ordinary kernel editing
 without an evaluation/infrastructure task is explicitly excluded.
 
@@ -55,11 +55,12 @@ the project ban on routine SHA-256 fields and repeated tree hashing.
 The official `quick_validate.py` accepted:
 
 - the canonical repository directory;
-- the installed `~/.codex/skills/kernel-infra` symlink.
+- the installed `~/.codex/skills/gpu-infra` symlink.
 
 The generated `agents/openai.yaml` has quoted interface strings, a 25–64
 character short description, and a default prompt that invokes
-`$kernel-infra`. No scaffold TODO remains.
+`$gpu-infra`. No scaffold TODO or legacy alias remains, so one workflow has one
+discoverable name.
 
 The commands named by the skill were checked against the exact current CLI
 help surfaces:
@@ -83,4 +84,3 @@ releasing, or changing experiment acceptance boundaries.
 Current live gates remain visible: A800 SSH is unavailable, and the production
 B200 broker/client must be upgraded to the verified v0.6 implementation before
 the real multi-candidate managed FIBServe batch can safely run.
-
