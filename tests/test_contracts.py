@@ -127,6 +127,21 @@ class ContractTests(unittest.TestCase):
             with self.assertRaises(CandidateError):
                 snapshot_candidate(source, root / "snapshot")
 
+    def test_candidate_snapshot_uses_broker_safe_default_file_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "candidate.py"
+            source.write_text("value = 1\n")
+            source.chmod(0o600)
+            destination = root / "snapshot"
+
+            snapshot_candidate(source, destination)
+
+            self.assertEqual(
+                (destination / source.name).stat().st_mode & 0o777,
+                0o644,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -48,13 +48,14 @@ def validate_candidate(source: Path) -> Path:
 
 # A broker that runs stage judges under its own identity must be able to read
 # the snapshotted candidate. Fleet transport installs bundle files 0600, which
-# locks that judge out. Deployments that need it widen this; unset is unchanged.
-_SNAPSHOT_FILE_MODE = os.environ.get("KERNELINFRA_RUN_FILE_MODE")
+# locks that judge out. Keep the default aligned with other run artifacts.
+_SNAPSHOT_FILE_MODE = int(
+    os.environ.get("KERNELINFRA_RUN_FILE_MODE", "644"), 8
+)
 
 
 def _relax(path) -> None:
-    if _SNAPSHOT_FILE_MODE:
-        os.chmod(path, int(_SNAPSHOT_FILE_MODE, 8))
+    os.chmod(path, _SNAPSHOT_FILE_MODE)
 
 
 def snapshot_candidate(source: Path, destination: Path) -> str:
