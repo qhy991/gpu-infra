@@ -165,6 +165,10 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["frontier_eligible"])
         self.assertEqual(result["validity"], "valid")
         for stage in ("correctness", "bench"):
+            self.assertEqual(
+                (run_dir / "stages" / stage).stat().st_mode & 0o777,
+                0o770,
+            )
             receipt = json.loads(
                 (run_dir / "stages" / stage / "receipt.json").read_text()
             )

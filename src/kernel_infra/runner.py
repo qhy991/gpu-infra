@@ -259,6 +259,10 @@ class RunManager:
         run_dir = self.store.run_dir(run_id)
         stage_dir = run_dir / "stages" / stage.id
         stage_dir.mkdir(parents=True, exist_ok=False, mode=0o777)
+        # The broker judge owns result creation under this directory. A daemon
+        # umask may remove group write from mkdir's mode, so restore the exact
+        # broker-writable, non-world-accessible boundary after creation.
+        stage_dir.chmod(0o770)
         result_path = stage_dir / "result.json"
         stdout_path = stage_dir / "stdout.log"
         stderr_path = stage_dir / "stderr.log"
