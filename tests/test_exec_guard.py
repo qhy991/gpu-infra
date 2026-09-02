@@ -76,6 +76,43 @@ class ExecGuardTests(unittest.TestCase):
             os.close(read_fd)
             os.close(write_fd)
 
+    def test_broker_mode_finalizes_owned_stage_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            child = root / "child.py"
+            child.write_text(
+                "import pathlib\n"
+                "root = pathlib.Path(__import__('sys').argv[1])\n"
+                "nested = root / 'nested'\n"
+                "nested.mkdir(mode=0o700)\n"
+                "result = nested / 'result.json'\n"
+                "result.write_text('{}')\n"
+                "result.chmod(0o600)\n"
+            )
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(GUARD),
+                    "--finalize-dir",
+                    str(root),
+                    "--dir-mode",
+                    "770",
+                    "--file-mode",
+                    "640",
+                    "--",
+                    sys.executable,
+                    str(child),
+                    str(root),
+                ],
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0)
+            self.assertEqual((root / "nested").stat().st_mode & 0o777, 0o770)
+            self.assertEqual(
+                (root / "nested" / "result.json").stat().st_mode & 0o777,
+                0o640,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

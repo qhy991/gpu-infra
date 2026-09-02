@@ -429,7 +429,22 @@ class RunManager:
             command.extend(["--queue-timeout", str(resources.queue_timeout_s)])
         for key, value in environment.items():
             command.extend(["--env", f"{key}={value}"])
-        command.extend(["--", *stage.command])
+        guard = Path(__file__).with_name("exec_guard.py")
+        command.extend(
+            [
+                "--",
+                sys.executable,
+                str(guard),
+                "--finalize-dir",
+                environment["KERNELINFRA_STAGE_DIR"],
+                "--dir-mode",
+                "770",
+                "--file-mode",
+                environment["KERNELINFRA_RUN_FILE_MODE"],
+                "--",
+                *stage.command,
+            ]
+        )
         return command
 
     def _stage_environment(
@@ -452,6 +467,9 @@ class RunManager:
             "KERNELINFRA_STAGE_KIND": stage.kind,
             "KERNELINFRA_STAGE_DIR": str(stage_dir),
             "KERNELINFRA_RESULT": str(result_path),
+            "KERNELINFRA_RUN_FILE_MODE": os.environ.get(
+                "KERNELINFRA_RUN_FILE_MODE", "644"
+            ),
         }
 
     async def _pump(self, reader: asyncio.StreamReader, path: Path) -> None:
