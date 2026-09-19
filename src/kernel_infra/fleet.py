@@ -55,6 +55,7 @@ class FleetNode:
     socket: str
     inbox: str
     capabilities: frozenset[str]
+    transport: str = "ssh"
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,11 @@ def _safe_remote_path(value: Any, where: str) -> str:
     return value
 
 
+def _node_path(value: Any, where: str, transport: str) -> str:
+    checked = _safe_remote_path(value, where)
+    return str(Path(checked).resolve()) if transport == "local" else checked
+
+
 def load_fleet_catalog(path: Path) -> FleetCatalog:
     source = path.expanduser().resolve()
     try:
@@ -143,23 +149,31 @@ def load_fleet_catalog(path: Path) -> FleetCatalog:
         "command_timeout_s",
     }:
         raise ContractError("fleet catalog has unexpected fields")
-    if raw.get("schema") != FLEET_SCHEMA:
-        raise ContractError(f"fleet catalog schema must be {FLEET_SCHEMA!r}")
+    if raw.get("schema") not in (FLEET_SCHEMA, "kernelinfra.fleet.v2"):
+        raise ContractError("fleet catalog schema must be kernelinfra.fleet.v1 or kernelinfra.fleet.v2")
     nodes_value = raw.get("nodes")
     if not isinstance(nodes_value, list) or not nodes_value:
         raise ContractError("fleet catalog nodes must be a non-empty list")
     nodes: list[FleetNode] = []
     for index, value in enumerate(nodes_value):
         where = f"fleet.nodes[{index}]"
-        if not isinstance(value, dict) or set(value) != {
+        expected_fields = {
             "id",
             "ssh",
             "kernelctl",
             "socket",
             "inbox",
             "capabilities",
-        }:
+        }
+        if raw["schema"] == "kernelinfra.fleet.v2":
+            expected_fields.add("transport")
+        if not isinstance(value, dict) or set(value) != expected_fields:
             raise ContractError(f"{where} has invalid fields")
+        transport = value.get("transport", "ssh")
+        if not isinstance(transport, str) or transport not in {"ssh", "local"}:
+            raise ContractError(f"{where}.transport must be ssh or local")
+        if transport == "local" and value["ssh"] != "localhost":
+            raise ContractError(f"{where}: local transport requires ssh=localhost")
         node_id = value["id"]
         if not isinstance(node_id, str) or not _ID.fullmatch(node_id):
             raise ContractError(f"{where}.id is invalid")
@@ -177,10 +191,11 @@ def load_fleet_catalog(path: Path) -> FleetCatalog:
             FleetNode(
                 node_id=node_id,
                 ssh_host=ssh_host,
-                kernelctl=_safe_remote_path(value["kernelctl"], f"{where}.kernelctl"),
-                socket=_safe_remote_path(value["socket"], f"{where}.socket"),
-                inbox=_safe_remote_path(value["inbox"], f"{where}.inbox"),
+                kernelctl=_node_path(value["kernelctl"], f"{where}.kernelctl", transport),
+                socket=_node_path(value["socket"], f"{where}.socket", transport),
+                inbox=_node_path(value["inbox"], f"{where}.inbox", transport),
                 capabilities=frozenset(capabilities),
+                transport=transport,
             )
         )
     if len({node.node_id for node in nodes}) != len(nodes):
@@ -267,6 +282,8 @@ def resolve_fleet_endpoint(
             f"fleet endpoint map has no unique endpoint for {node.node_id!r}"
         )
     endpoint = matches[0]
+    if node.transport == "local" and endpoint.ssh_host != "localhost":
+        raise ContractError("local endpoint cannot change transport host")
     effective = FleetNode(
         node_id=node.node_id,
         ssh_host=endpoint.ssh_host,
@@ -274,6 +291,7 @@ def resolve_fleet_endpoint(
         socket=endpoint.socket,
         inbox=node.inbox,
         capabilities=node.capabilities,
+        transport=node.transport,
     )
     return effective, _endpoint_record(
         owner="fleet-endpoints", source=endpoints.source_path, node=effective
@@ -291,6 +309,12 @@ def _endpoint_record(
         "kernelctl": node.kernelctl,
         "socket": node.socket,
     }
+
+
+def _transport_command(node: FleetNode, catalog: FleetCatalog, command: str) -> list[str]:
+    if node.transport == "local":
+        return shlex.split(command)
+    return [*_ssh_base(node, catalog), command]
 
 
 def _ssh_base(node: FleetNode, catalog: FleetCatalog) -> list[str]:
@@ -316,7 +340,7 @@ def probe_node(
     )
     try:
         completed = run(
-            [*_ssh_base(node, catalog), command],
+            _transport_command(node, catalog, command),
             capture_output=True,
             text=True,
             check=False,
@@ -421,6 +445,12 @@ def select_node(
             broker = status.get("broker", {})
             if broker.get("probe_error"):
                 reasons.append("broker_probe_error")
+            expected = {"cuda": "nvidia", "nvidia": "nvidia", "metal": "metal", "hygon": "hygon"}
+            for capability in required_capabilities & expected.keys():
+                actual = broker.get("backend")
+                # Legacy brokers are NVIDIA-only; never infer an exotic backend.
+                if (actual or "nvidia") != expected[capability]:
+                    reasons.append("backend_mismatch=" + capability)
         decision = {
             "node_id": node.node_id,
             "eligible": not reasons,
@@ -684,7 +714,7 @@ def submit_bundle_to_node(
     try:
         with archive_path.open("rb") as stream:
             completed = subprocess.run(
-                [*_ssh_base(node, catalog), command],
+                _transport_command(node, catalog, command),
                 stdin=stream,
                 capture_output=True,
                 check=False,
@@ -719,7 +749,7 @@ def remote_kernelctl_json(
     limit = catalog.command_timeout_s if timeout_s is None else timeout_s
     try:
         completed = subprocess.run(
-            [*_ssh_base(node, catalog), command],
+            _transport_command(node, catalog, command),
             capture_output=True,
             text=True,
             check=False,
@@ -1342,7 +1372,7 @@ def fetch_artifact_export(
     try:
         with archive_path.open("xb") as output:
             completed = subprocess.run(
-                [*_ssh_base(node, catalog), command],
+                _transport_command(node, catalog, command),
                 stdout=output,
                 stderr=subprocess.PIPE,
                 check=False,

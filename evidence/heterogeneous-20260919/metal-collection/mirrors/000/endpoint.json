@@ -1,0 +1,8 @@
+{
+  "owner": "historical-catalog",
+  "source": "/private/tmp/ki-metal-rwbdez8o/catalog.json",
+  "node_id": "mac",
+  "ssh": "localhost",
+  "kernelctl": "/Users/haiyan/Documents/Infinity/Agent4Kernel/gpu-infra/bin/kernelctl",
+  "socket": "/private/tmp/ki-metal-rwbdez8o/k.sock"
+}

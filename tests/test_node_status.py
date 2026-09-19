@@ -126,6 +126,9 @@ class NodeStatusTests(unittest.IsolatedAsyncioTestCase):
             broker = {
                 "version": 2,
                 "broker_version": "0.6.0",
+                "backend": "metal",
+                "occupancy_scope": "cooperative",
+                "external_occupancy": "unknown",
                 "instance_id": "broker-instance",
                 "probe_error": None,
                 "shared_capacity": 2,
@@ -149,6 +152,8 @@ class NodeStatusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status["ready_deployments"], ["service-ready"])
         self.assertEqual(status["broker"]["broker_version"], "0.6.0")
         self.assertNotIn("_kernelinfra_peer_pid", status["broker"])
+        self.assertEqual(status["broker"]["backend"], "metal")
+        self.assertEqual(status["broker"]["external_occupancy"], "unknown")
 
 
 if __name__ == "__main__":

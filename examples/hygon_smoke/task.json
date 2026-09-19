@@ -1,0 +1,36 @@
+{
+  "schema": "kernelinfra.task.v1",
+  "task_id": "hygon-vector-double-smoke",
+  "description": "HIP correctness-only infrastructure qualification; requires a qualified runtime",
+  "workloads": [
+    "vector-65536"
+  ],
+  "comparison": {
+    "primary_workloads": [
+      "vector-65536"
+    ],
+    "guardrails": {},
+    "relative_noise_floor": 0.1
+  },
+  "stages": [
+    {
+      "id": "correctness",
+      "kind": "correctness",
+      "judge": {
+        "identity": "hygon-vector-double-v1",
+        "cwd": ".",
+        "command": [
+          "python3",
+          "evaluator.py"
+        ]
+      },
+      "resources": {
+        "mode": "exclusive",
+        "gpu_count": 1,
+        "estimate_s": 10,
+        "queue_timeout_s": 30,
+        "run_timeout_s": 120
+      }
+    }
+  ]
+}

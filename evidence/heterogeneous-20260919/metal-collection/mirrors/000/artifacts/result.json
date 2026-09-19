@@ -1,0 +1,40 @@
+{
+  "schema": "kernelinfra.run-result.v1",
+  "run_id": "metal-vector-double-smoke-497f80d2ecb1",
+  "task_id": "metal-vector-double-smoke",
+  "task_sha256": "e4581245ff256efebceb920a3c6c3af57c337da48716722e69b3454bbbe1a1e5",
+  "candidate_sha256": "fb9d22b03dbfc459a0bc431de6aecbaab1aa0b1cf69a0b8213026226ad1fa74c",
+  "outcome": "completed",
+  "validity": "valid",
+  "frontier_eligible": false,
+  "terminal_reason": null,
+  "stages": [
+    {
+      "id": "compile",
+      "kind": "compile",
+      "status": "passed",
+      "validity": "unknown",
+      "summary": "CPU-only Swift host compilation"
+    },
+    {
+      "id": "correctness",
+      "kind": "correctness",
+      "status": "passed",
+      "validity": "valid",
+      "summary": ""
+    }
+  ],
+  "workloads": [
+    {
+      "id": "vector-65536",
+      "correct": true
+    }
+  ],
+  "fingerprints": {},
+  "metrics": {
+    "correctness": {
+      "backend": "metal",
+      "occupancy_scope": "cooperative"
+    }
+  }
+}

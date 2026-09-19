@@ -1,0 +1,4 @@
+[gpu-run] accepted job gpuq-09a486f14d8a label=ki:metal-vector-double-smoke:correctness:candidate_good mode=exclusive gpus=1
+[gpu-run] queued position=1/1 eta=0s
+[gpu-run] running on physical GPUs 0 (run limit 2m00s)
+[gpu-run] finished state=completed exit=0

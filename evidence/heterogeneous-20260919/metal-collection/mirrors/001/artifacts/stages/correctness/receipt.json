@@ -1,0 +1,17 @@
+{
+  "schema": "kernelinfra.stage-receipt.v1",
+  "run_id": "metal-vector-double-smoke-a9fa1b5baf93",
+  "stage_id": "correctness",
+  "stage_kind": "correctness",
+  "execution": "broker",
+  "judge_identity": "metal-vector-double-v1",
+  "started_at": "2026-09-19T09:32:24.164832+00:00",
+  "finished_at": "2026-09-19T09:32:24.715127+00:00",
+  "exit_code": 1,
+  "broker_job_id": "gpuq-987a8b6884b6",
+  "gpu_ids": [
+    0
+  ],
+  "judge_result_valid": true,
+  "error": null
+}

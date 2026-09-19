@@ -31,6 +31,15 @@ owners:
    queue, alternate allocator, automatic failover, or new digest merely for
    convenience.
 
+## Heterogeneous nodes
+
+Read `docs/heterogeneous-backends.md` for Metal/Hygon setup and qualification limits.
+Catalog v2 supports explicit local/SSH transports. Require the backend capability
+when routing; catalog tags do not prove runtime support. Metal requires explicit
+cooperative occupancy scope and does not claim external GPU idleness. Hygon
+requires a qualified HIP toolchain and device ordinal mapping. `local` task
+stages remain CPU-only regardless of the Fleet transport.
+
 ## Select the smallest complete path
 
 ### One node, direct staged evaluation

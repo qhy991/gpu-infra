@@ -1,0 +1,45 @@
+{
+  "schema": "kernelinfra.request.v1",
+  "run_id": "metal-vector-double-smoke-497f80d2ecb1",
+  "task_id": "metal-vector-double-smoke",
+  "task_sha256": "e4581245ff256efebceb920a3c6c3af57c337da48716722e69b3454bbbe1a1e5",
+  "candidate_sha256": "fb9d22b03dbfc459a0bc431de6aecbaab1aa0b1cf69a0b8213026226ad1fa74c",
+  "candidate_source": "/private/tmp/ki-metal-rwbdez8o/inbox/21c67bb711b9f0e2d712b09c0d9824bc/candidate",
+  "task_source": "/private/tmp/ki-metal-rwbdez8o/inbox/21c67bb711b9f0e2d712b09c0d9824bc/task.json",
+  "label": "candidate_good",
+  "accepted_at": "2026-09-19T09:32:20.992849+00:00",
+  "stages": [
+    {
+      "id": "compile",
+      "kind": "compile",
+      "execution": "local",
+      "judge_identity": "metal-vector-double-v1",
+      "resolved_cwd": "/Users/haiyan/Documents/Infinity/Agent4Kernel/gpu-infra/examples/metal_smoke",
+      "command": [
+        "python3",
+        "evaluator.py"
+      ],
+      "service_deployment": null,
+      "resources": null
+    },
+    {
+      "id": "correctness",
+      "kind": "correctness",
+      "execution": "broker",
+      "judge_identity": "metal-vector-double-v1",
+      "resolved_cwd": "/Users/haiyan/Documents/Infinity/Agent4Kernel/gpu-infra/examples/metal_smoke",
+      "command": [
+        "python3",
+        "evaluator.py"
+      ],
+      "service_deployment": null,
+      "resources": {
+        "mode": "exclusive",
+        "gpu_count": 1,
+        "estimate_s": 10.0,
+        "queue_timeout_s": 30.0,
+        "run_timeout_s": 120.0
+      }
+    }
+  ]
+}

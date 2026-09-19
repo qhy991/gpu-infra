@@ -1,0 +1,98 @@
+{
+  "schema": "kernelinfra.fleet-snapshot.v2",
+  "observed_at": "2026-09-19T09:32:24.913622+00:00",
+  "catalog": "/private/tmp/ki-metal-rwbdez8o/catalog.json",
+  "observations": [
+    {
+      "route": "/private/tmp/ki-metal-rwbdez8o/good.route.json",
+      "route_receipt_sha256": "536dfb73c3b632e73f21e637bb0d73864a65d17554b46d6bbfb54f3634c11fcc",
+      "locator": {
+        "node_id": "mac",
+        "run_id": "metal-vector-double-smoke-497f80d2ecb1"
+      },
+      "endpoint": {
+        "owner": "historical-catalog",
+        "source": "/private/tmp/ki-metal-rwbdez8o/catalog.json",
+        "node_id": "mac",
+        "ssh": "localhost",
+        "kernelctl": "/Users/haiyan/Documents/Infinity/Agent4Kernel/gpu-infra/bin/kernelctl",
+        "socket": "/private/tmp/ki-metal-rwbdez8o/k.sock"
+      },
+      "status": "ok",
+      "response": {
+        "schema": "kernelinfra.state.v1",
+        "run_id": "metal-vector-double-smoke-497f80d2ecb1",
+        "task_id": "metal-vector-double-smoke",
+        "task_sha256": "e4581245ff256efebceb920a3c6c3af57c337da48716722e69b3454bbbe1a1e5",
+        "candidate_sha256": "fb9d22b03dbfc459a0bc431de6aecbaab1aa0b1cf69a0b8213026226ad1fa74c",
+        "label": "candidate_good",
+        "state": "completed",
+        "stage_id": null,
+        "stage_kind": null,
+        "stage_index": null,
+        "broker_job_id": "gpuq-09a486f14d8a",
+        "gpu_ids": [
+          0
+        ],
+        "service_deployment_ids": [],
+        "accepted_at": "2026-09-19T09:32:20.992849+00:00",
+        "updated_at": "2026-09-19T09:32:23.320261+00:00",
+        "terminal_at": "2026-09-19T09:32:23.320261+00:00",
+        "reason": null,
+        "run_dir": "/private/tmp/ki-metal-rwbdez8o/runs/runs/metal-vector-double-smoke-497f80d2ecb1"
+      },
+      "error": null
+    },
+    {
+      "route": "/private/tmp/ki-metal-rwbdez8o/bad.route.json",
+      "route_receipt_sha256": "0ab12c7d811a3d81e727cde0bea6103dc2658fed5f922c89d5be1eeca8e54abc",
+      "locator": {
+        "node_id": "mac",
+        "run_id": "metal-vector-double-smoke-a9fa1b5baf93"
+      },
+      "endpoint": {
+        "owner": "historical-catalog",
+        "source": "/private/tmp/ki-metal-rwbdez8o/catalog.json",
+        "node_id": "mac",
+        "ssh": "localhost",
+        "kernelctl": "/Users/haiyan/Documents/Infinity/Agent4Kernel/gpu-infra/bin/kernelctl",
+        "socket": "/private/tmp/ki-metal-rwbdez8o/k.sock"
+      },
+      "status": "ok",
+      "response": {
+        "schema": "kernelinfra.state.v1",
+        "run_id": "metal-vector-double-smoke-a9fa1b5baf93",
+        "task_id": "metal-vector-double-smoke",
+        "task_sha256": "e4581245ff256efebceb920a3c6c3af57c337da48716722e69b3454bbbe1a1e5",
+        "candidate_sha256": "257db6c7d36a105da69874f88cbd19ec04471536f39a6c7cfd20023fadcbdb96",
+        "label": "candidate_bad",
+        "state": "rejected",
+        "stage_id": null,
+        "stage_kind": null,
+        "stage_index": null,
+        "broker_job_id": "gpuq-987a8b6884b6",
+        "gpu_ids": [
+          0
+        ],
+        "service_deployment_ids": [],
+        "accepted_at": "2026-09-19T09:32:23.610921+00:00",
+        "updated_at": "2026-09-19T09:32:24.717163+00:00",
+        "terminal_at": "2026-09-19T09:32:24.717163+00:00",
+        "reason": "stage correctness failed",
+        "run_dir": "/private/tmp/ki-metal-rwbdez8o/runs/runs/metal-vector-double-smoke-a9fa1b5baf93"
+      },
+      "error": null
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "ok": 2,
+    "unknown": 0,
+    "terminal": 2,
+    "nonterminal": 0,
+    "states": {
+      "completed": 1,
+      "rejected": 1
+    }
+  }
+}

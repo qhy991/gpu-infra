@@ -1,0 +1,15 @@
+{
+  "schema": "kernelinfra.stage-receipt.v1",
+  "run_id": "metal-vector-double-smoke-497f80d2ecb1",
+  "stage_id": "compile",
+  "stage_kind": "compile",
+  "execution": "local",
+  "judge_identity": "metal-vector-double-v1",
+  "started_at": "2026-09-19T09:32:20.993670+00:00",
+  "finished_at": "2026-09-19T09:32:21.747647+00:00",
+  "exit_code": 0,
+  "broker_job_id": null,
+  "gpu_ids": [],
+  "judge_result_valid": true,
+  "error": null
+}

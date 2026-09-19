@@ -1,0 +1,14 @@
+{
+  "schema": "kernelinfra.artifact-mirror.v2",
+  "authority": "mirror-only",
+  "mirrored_at": "2026-09-19T09:32:25.022478+00:00",
+  "route_receipt_sha256": "536dfb73c3b632e73f21e637bb0d73864a65d17554b46d6bbfb54f3634c11fcc",
+  "locator": {
+    "node_id": "mac",
+    "run_id": "metal-vector-double-smoke-497f80d2ecb1"
+  },
+  "transport_endpoint": "endpoint.json",
+  "artifact_manifest": "artifact-manifest.json",
+  "artifact_root": "artifacts",
+  "validation": "passed"
+}

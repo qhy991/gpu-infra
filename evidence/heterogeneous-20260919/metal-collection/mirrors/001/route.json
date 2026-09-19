@@ -1,0 +1,148 @@
+{
+  "schema": "kernelinfra.route-receipt.v1",
+  "routed_at": "2026-09-19T09:32:23.527119+00:00",
+  "catalog": "/private/tmp/ki-metal-rwbdez8o/catalog.json",
+  "catalog_sha256": "f7b1c8fcbc50ea0684cd2bb5994b820b9167514b84ec971ba7e4edbb6511504d",
+  "bundle_id": "2588becebae5e9a3476ef543d6ef8a00",
+  "task_id": "metal-vector-double-smoke",
+  "task_sha256": "e4581245ff256efebceb920a3c6c3af57c337da48716722e69b3454bbbe1a1e5",
+  "candidate_sha256": "257db6c7d36a105da69874f88cbd19ec04471536f39a6c7cfd20023fadcbdb96",
+  "required_capabilities": [
+    "metal"
+  ],
+  "required_deployments": [],
+  "min_free_bytes": 1073741824,
+  "observations": [
+    {
+      "schema": "kernelinfra.fleet-node-observation.v1",
+      "node_id": "mac",
+      "ssh": "localhost",
+      "status": "ok",
+      "capabilities": [
+        "metal"
+      ],
+      "elapsed_seconds": 0.0952972499999305,
+      "node": {
+        "schema": "kernelinfra.node-status.v1",
+        "observed_at": "2026-09-19T09:32:23.516993+00:00",
+        "kernelinfra_version": "0.16.0",
+        "daemon_instance_id": "haiyan-Mac-2.local-pid59964-startunknown",
+        "state_root": "/private/tmp/ki-metal-rwbdez8o/runs",
+        "disk": {
+          "total_bytes": 494384795648,
+          "used_bytes": 480150392832,
+          "free_bytes": 14234402816
+        },
+        "active_runs": [],
+        "services": [],
+        "ready_deployments": [],
+        "broker": {
+          "version": 2,
+          "broker_version": "0.5.3",
+          "backend": "metal",
+          "occupancy_scope": "cooperative",
+          "external_occupancy": "unknown",
+          "instance_id": "haiyan-Mac-2.local-pid59948-startunknown",
+          "probe_error": null,
+          "shared_capacity": 2,
+          "gpus": [
+            {
+              "gpu_id": 0,
+              "state": "idle"
+            }
+          ],
+          "running": [],
+          "queue": []
+        }
+      },
+      "error": null
+    }
+  ],
+  "decisions": [
+    {
+      "node_id": "mac",
+      "eligible": true,
+      "reasons": []
+    }
+  ],
+  "selected_node": "mac",
+  "selected_observation": {
+    "schema": "kernelinfra.fleet-node-observation.v1",
+    "node_id": "mac",
+    "ssh": "localhost",
+    "status": "ok",
+    "capabilities": [
+      "metal"
+    ],
+    "elapsed_seconds": 0.0952972499999305,
+    "node": {
+      "schema": "kernelinfra.node-status.v1",
+      "observed_at": "2026-09-19T09:32:23.516993+00:00",
+      "kernelinfra_version": "0.16.0",
+      "daemon_instance_id": "haiyan-Mac-2.local-pid59964-startunknown",
+      "state_root": "/private/tmp/ki-metal-rwbdez8o/runs",
+      "disk": {
+        "total_bytes": 494384795648,
+        "used_bytes": 480150392832,
+        "free_bytes": 14234402816
+      },
+      "active_runs": [],
+      "services": [],
+      "ready_deployments": [],
+      "broker": {
+        "version": 2,
+        "broker_version": "0.5.3",
+        "backend": "metal",
+        "occupancy_scope": "cooperative",
+        "external_occupancy": "unknown",
+        "instance_id": "haiyan-Mac-2.local-pid59948-startunknown",
+        "probe_error": null,
+        "shared_capacity": 2,
+        "gpus": [
+          {
+            "gpu_id": 0,
+            "state": "idle"
+          }
+        ],
+        "running": [],
+        "queue": []
+      }
+    },
+    "error": null
+  },
+  "status": "submitted",
+  "locator": {
+    "node_id": "mac",
+    "run_id": "metal-vector-double-smoke-a9fa1b5baf93"
+  },
+  "remote": {
+    "schema": "kernelinfra.fleet-receive.v1",
+    "bundle_id": "2588becebae5e9a3476ef543d6ef8a00",
+    "bundle_dir": "/private/tmp/ki-metal-rwbdez8o/inbox/2588becebae5e9a3476ef543d6ef8a00",
+    "reused": false,
+    "task_sha256": "e4581245ff256efebceb920a3c6c3af57c337da48716722e69b3454bbbe1a1e5",
+    "candidate_sha256": "257db6c7d36a105da69874f88cbd19ec04471536f39a6c7cfd20023fadcbdb96",
+    "run": {
+      "schema": "kernelinfra.state.v1",
+      "run_id": "metal-vector-double-smoke-a9fa1b5baf93",
+      "task_id": "metal-vector-double-smoke",
+      "task_sha256": "e4581245ff256efebceb920a3c6c3af57c337da48716722e69b3454bbbe1a1e5",
+      "candidate_sha256": "257db6c7d36a105da69874f88cbd19ec04471536f39a6c7cfd20023fadcbdb96",
+      "label": "candidate_bad",
+      "state": "accepted",
+      "stage_id": null,
+      "stage_kind": null,
+      "stage_index": null,
+      "broker_job_id": null,
+      "gpu_ids": [],
+      "service_deployment_ids": [],
+      "accepted_at": "2026-09-19T09:32:23.610921+00:00",
+      "updated_at": "2026-09-19T09:32:23.610921+00:00",
+      "terminal_at": null,
+      "reason": null,
+      "run_dir": "/private/tmp/ki-metal-rwbdez8o/runs/runs/metal-vector-double-smoke-a9fa1b5baf93"
+    }
+  },
+  "error": null,
+  "route_receipt_sha256": "0ab12c7d811a3d81e727cde0bea6103dc2658fed5f922c89d5be1eeca8e54abc"
+}

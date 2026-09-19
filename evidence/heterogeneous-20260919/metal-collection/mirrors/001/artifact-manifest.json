@@ -1,0 +1,75 @@
+{
+  "schema": "kernelinfra.artifact-manifest.v1",
+  "authority": "node-run",
+  "terminal_at": "2026-09-19T09:32:24.717163+00:00",
+  "run_id": "metal-vector-double-smoke-a9fa1b5baf93",
+  "task_id": "metal-vector-double-smoke",
+  "task_sha256": "e4581245ff256efebceb920a3c6c3af57c337da48716722e69b3454bbbe1a1e5",
+  "candidate_sha256": "257db6c7d36a105da69874f88cbd19ec04471536f39a6c7cfd20023fadcbdb96",
+  "terminal_state": "rejected",
+  "run_dir": "/private/tmp/ki-metal-rwbdez8o/runs/runs/metal-vector-double-smoke-a9fa1b5baf93",
+  "total_bytes": 87895,
+  "files": [
+    {
+      "path": "candidate/kernel.metal",
+      "size": 205
+    },
+    {
+      "path": "events.jsonl",
+      "size": 2907
+    },
+    {
+      "path": "metal-judge",
+      "size": 78808
+    },
+    {
+      "path": "request.json",
+      "size": 1513
+    },
+    {
+      "path": "result.json",
+      "size": 992
+    },
+    {
+      "path": "stages/compile/receipt.json",
+      "size": 435
+    },
+    {
+      "path": "stages/compile/result.json",
+      "size": 130
+    },
+    {
+      "path": "stages/compile/stderr.log",
+      "size": 0
+    },
+    {
+      "path": "stages/compile/stdout.log",
+      "size": 0
+    },
+    {
+      "path": "stages/correctness/receipt.json",
+      "size": 468
+    },
+    {
+      "path": "stages/correctness/result.json",
+      "size": 208
+    },
+    {
+      "path": "stages/correctness/stderr.log",
+      "size": 255
+    },
+    {
+      "path": "stages/correctness/stdout.log",
+      "size": 0
+    },
+    {
+      "path": "state.json",
+      "size": 818
+    },
+    {
+      "path": "task.json",
+      "size": 1156
+    }
+  ],
+  "artifact_set_sha256": "212ac64f96f6fa7db4e3e8461895be93200b34fb76517df0a570f395df83f362"
+}

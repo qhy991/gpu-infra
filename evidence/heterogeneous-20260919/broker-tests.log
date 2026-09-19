@@ -1,0 +1,48 @@
+test_backend_environment_cannot_be_overridden (test_backends.BackendTests.test_backend_environment_cannot_be_overridden) ... ok
+test_command_probe_rejects_unknown_and_drift (test_backends.BackendTests.test_command_probe_rejects_unknown_and_drift) ... ok
+test_hygon_child_environment_and_receipt (test_backends.BackendTests.test_hygon_child_environment_and_receipt) ... ok
+test_metal_requires_explicit_scope (test_backends.BackendTests.test_metal_requires_explicit_scope) ... ok
+test_exclusive_waits_for_shared_users (test_broker.BrokerTests.test_exclusive_waits_for_shared_users) ... ok
+test_fifo_queue_streams_position_then_runs (test_broker.BrokerTests.test_fifo_queue_streams_position_then_runs) ... ok
+test_foreign_card_blocks_by_default_but_schedules_with_allow_foreign (test_broker.BrokerTests.test_foreign_card_blocks_by_default_but_schedules_with_allow_foreign) ... ok
+test_overdue_running_estimate_produces_unknown_eta (test_broker.BrokerTests.test_overdue_running_estimate_produces_unknown_eta) ... ok
+test_queue_timeout_does_not_launch_command (test_broker.BrokerTests.test_queue_timeout_does_not_launch_command) ... ok
+test_rejects_request_larger_than_managed_inventory (test_broker.BrokerTests.test_rejects_request_larger_than_managed_inventory) ... ok
+test_run_timeout_terminates_process_group (test_broker.BrokerTests.test_run_timeout_terminates_process_group) ... ok
+test_shared_capacity_queues_third_job (test_broker.BrokerTests.test_shared_capacity_queues_third_job) ... ok
+test_status_projection_contains_global_queue (test_broker.BrokerTests.test_status_projection_contains_global_queue) ... ok
+test_two_shared_jobs_overlap_on_one_gpu (test_broker.BrokerTests.test_two_shared_jobs_overlap_on_one_gpu) ... ok
+test_unknown_queued_estimate_only_hides_following_eta (test_broker.BrokerTests.test_unknown_queued_estimate_only_hides_following_eta) ... ok
+test_unknown_running_estimate_produces_unknown_eta (test_broker.BrokerTests.test_unknown_running_estimate_produces_unknown_eta) ... ok
+test_fifo_head_blocks_smaller_job (test_broker.MultiGpuBrokerTests.test_fifo_head_blocks_smaller_job) ... ok
+test_multi_gpu_allocation_is_atomic_and_visible (test_broker.MultiGpuBrokerTests.test_multi_gpu_allocation_is_atomic_and_visible) ... ok
+test_positive_integer (test_cli.DurationTests.test_positive_integer) ... ok
+test_rejects_non_positive (test_cli.DurationTests.test_rejects_non_positive) ... ok
+test_suffixes (test_cli.DurationTests.test_suffixes) ... ok
+test_unknown_estimate (test_cli.DurationTests.test_unknown_estimate) ... ok
+test_finished_warning_is_visible (test_cli.RunTests.test_finished_warning_is_visible) ... ok
+test_interrupt_explicitly_requests_cancellation (test_cli.RunTests.test_interrupt_explicitly_requests_cancellation) ... ok
+test_human_status_shows_broker_identity (test_cli.StatusTests.test_human_status_shows_broker_identity) ... ok
+test_runit_uses_absolute_broker_and_system_job_path (test_hardening.DeploymentTests.test_runit_uses_absolute_broker_and_system_job_path) ... ok
+test_cancel_before_execute_starts_releases_allocation (test_hardening.HardeningTests.test_cancel_before_execute_starts_releases_allocation) ... ok
+test_normal_completion_has_no_warning (test_hardening.HardeningTests.test_normal_completion_has_no_warning) ... ok
+test_preflight_rejects_before_waiting_for_gpu (test_hardening.HardeningTests.test_preflight_rejects_before_waiting_for_gpu) ... ok
+test_preflight_rejects_inaccessible_cwd (test_hardening.HardeningTests.test_preflight_rejects_inaccessible_cwd) ... skipped 'running as root: permission check cannot fail'
+test_preflight_rejects_inaccessible_executable (test_hardening.HardeningTests.test_preflight_rejects_inaccessible_executable) ... ok
+test_preflight_rejects_missing_cwd (test_hardening.HardeningTests.test_preflight_rejects_missing_cwd) ... ok
+test_preflight_uses_job_path_and_cwd (test_hardening.HardeningTests.test_preflight_uses_job_path_and_cwd) ... ok
+test_status_exposes_identity (test_hardening.HardeningTests.test_status_exposes_identity) ... ok
+test_swallowed_failure_warning_on_fast_permission_error (test_hardening.HardeningTests.test_swallowed_failure_warning_on_fast_permission_error) ... ok
+test_busy_pid_maps_to_only_its_device (test_hygon_probe.HygonProbeTests.test_busy_pid_maps_to_only_its_device) ... ok
+test_mapping_race_is_unknown_and_library_closes (test_hygon_probe.HygonProbeTests.test_mapping_race_is_unknown_and_library_closes) ... ok
+test_broken_event_stream_cancels_running_job (test_server.ServerTests.test_broken_event_stream_cancels_running_job) ... ok
+test_explicit_cancel_preserves_reason (test_server.ServerTests.test_explicit_cancel_preserves_reason) ... ok
+test_resource_fields_are_required (test_server.ServerTests.test_resource_fields_are_required) ... ok
+test_running_disconnect_preserves_cancel_reason_and_releases_gpu (test_server.ServerTests.test_running_disconnect_preserves_cancel_reason_and_releases_gpu) ... ok
+test_status_observes_job_submitted_by_another_connection (test_server.ServerTests.test_status_observes_job_submitted_by_another_connection) ... ok
+test_unknown_estimate_round_trips_as_null (test_server.ServerTests.test_unknown_estimate_round_trips_as_null) ... ok
+
+----------------------------------------------------------------------
+Ran 43 tests in 4.146s
+
+OK (skipped=1)

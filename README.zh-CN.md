@@ -23,7 +23,7 @@ GPU Infra 是面向编码 Agent 的 GPU kernel 评测基础设施。Agent 提交
 
 ## 安装
 
-要求 Python 3.10+，GPU 节点还需要可用的 NVIDIA 驱动以及 task 所声明的 evaluator/toolchain。
+要求 Python 3.10+，GPU 节点还需要对应的驱动和 task 声明的 evaluator/toolchain。默认后端为 NVIDIA；新增单 Apple GPU 的 Metal 协作式调度、海光 HIP 后端接入，以及本机 Fleet transport。支持边界与启动方法见 [异构节点设计](docs/heterogeneous-backends.md)。
 
 ```bash
 git clone --recurse-submodules https://github.com/qhy991/gpu-infra.git

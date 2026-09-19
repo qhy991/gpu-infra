@@ -1,0 +1,16 @@
+{
+  "schema": "kernelinfra.fleet.v2",
+  "nodes": [
+    {
+      "id": "mac",
+      "transport": "local",
+      "ssh": "localhost",
+      "kernelctl": "/Users/haiyan/Documents/Infinity/Agent4Kernel/gpu-infra/bin/kernelctl",
+      "socket": "/tmp/ki-metal-rwbdez8o/k.sock",
+      "inbox": "/tmp/ki-metal-rwbdez8o/inbox",
+      "capabilities": [
+        "metal"
+      ]
+    }
+  ]
+}

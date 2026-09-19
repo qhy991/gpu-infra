@@ -1,0 +1,49 @@
+{
+  "schema": "kernelinfra.task.v1",
+  "task_id": "metal-vector-double-smoke",
+  "description": "Metal correctness-only infrastructure qualification",
+  "workloads": [
+    "vector-65536"
+  ],
+  "comparison": {
+    "primary_workloads": [
+      "vector-65536"
+    ],
+    "guardrails": {},
+    "relative_noise_floor": 0.1
+  },
+  "stages": [
+    {
+      "id": "compile",
+      "kind": "compile",
+      "execution": "local",
+      "judge": {
+        "identity": "metal-vector-double-v1",
+        "cwd": ".",
+        "command": [
+          "python3",
+          "evaluator.py"
+        ]
+      }
+    },
+    {
+      "id": "correctness",
+      "kind": "correctness",
+      "judge": {
+        "identity": "metal-vector-double-v1",
+        "cwd": ".",
+        "command": [
+          "python3",
+          "evaluator.py"
+        ]
+      },
+      "resources": {
+        "mode": "exclusive",
+        "gpu_count": 1,
+        "estimate_s": 10,
+        "queue_timeout_s": 30,
+        "run_timeout_s": 120
+      }
+    }
+  ]
+}

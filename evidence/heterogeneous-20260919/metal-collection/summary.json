@@ -1,0 +1,40 @@
+{
+  "schema": "kernelinfra.fleet-collection.v1",
+  "created_at": "2026-09-19T09:32:25.023224+00:00",
+  "catalog": "catalog.json",
+  "snapshot": "snapshot.json",
+  "items": [
+    {
+      "index": 0,
+      "source_route": "/private/tmp/ki-metal-rwbdez8o/good.route.json",
+      "route": "routes/000.json",
+      "locator": {
+        "node_id": "mac",
+        "run_id": "metal-vector-double-smoke-497f80d2ecb1"
+      },
+      "observed_status": "ok",
+      "observed_state": "completed",
+      "status": "mirrored",
+      "mirror": "mirrors/000",
+      "error": null
+    },
+    {
+      "index": 1,
+      "source_route": "/private/tmp/ki-metal-rwbdez8o/bad.route.json",
+      "route": "routes/001.json",
+      "locator": {
+        "node_id": "mac",
+        "run_id": "metal-vector-double-smoke-a9fa1b5baf93"
+      },
+      "observed_status": "ok",
+      "observed_state": "rejected",
+      "status": "mirrored",
+      "mirror": "mirrors/001",
+      "error": null
+    }
+  ],
+  "counts": {
+    "mirrored": 2
+  },
+  "complete": true
+}

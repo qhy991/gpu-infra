@@ -1,0 +1,1 @@
+{"schema": "kernelinfra.stage-result.v1", "status": "passed", "validity": "valid", "workloads": [{"id": "vector-65536", "correct": true}], "metrics": {"backend": "metal", "occupancy_scope": "cooperative"}}
