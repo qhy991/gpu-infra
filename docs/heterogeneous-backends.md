@@ -85,7 +85,24 @@ Kernel execution is not qualified: `/opt/rocm` resolves into an inaccessible
 root directory; host Python is 3.7; docker exec into dcu-dev is rejected by the
 host device plugin. No containers, drivers or production daemons were changed.
 
-## Local and SSH fleet nodes
+## AMD ROCm
+
+AMD is a distinct broker backend, selected with `--backend amd`. It requires an
+explicit `--probe-command` producing the existing device-probe schema with
+complete system process observations and qualified HIP runtime ordinals. No
+Hygon library or device mapping is silently reused. The backend clears competing
+visibility masks and sets HIP_VISIBLE_DEVICES from its own allocation. Fleet
+`--require amd` checks the observed broker backend, not just catalog labels.
+This addition has CPU protocol coverage; qualify the probe/runtime on each real
+AMD host before admitting kernel experiments.
+
+Broker status now declares `allocation_environment: gpuq_v1`. The daemon injects
+GPUQ_JOB_ID and GPUQ_MODE after caller environment merging, alongside the existing
+backend/device/scope facts. Cake's adapter uses this protocol to reject stale
+daemons before starting authoring. This is an execution boundary, not an
+independent correctness or performance judgment.
+
+## Local and SSH fleet nodes (routing)
 
 Catalog v1 remains SSH-only. Catalog v2 requires a `transport` field on each
 node (`ssh` or `local`); other fields retain their existing meaning. For local,

@@ -48,3 +48,21 @@ class HeterogeneousFleetTests(unittest.TestCase):
             catalog.source_path.write_text(json.dumps(value))
             with self.assertRaises(ContractError):
                 load_fleet_catalog(catalog.source_path)
+
+    def test_amd_label_requires_amd_broker_not_hygon(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog = self.catalog(directory)
+            value = json.loads(catalog.source_path.read_text())
+            value['nodes'][0]['capabilities'] = ['amd']
+            catalog.source_path.write_text(json.dumps(value))
+            catalog = load_fleet_catalog(catalog.source_path)
+            status = node_status()
+            kwargs = dict(catalog=catalog,
+                observations=[{'node_id':'mac', 'status':'ok', 'node':status}],
+                required_capabilities={'amd'}, required_deployments=set(), min_free_bytes=0)
+            for backend in ('nvidia', 'hygon', None):
+                status['broker']['backend'] = backend
+                with self.assertRaises(FleetSelectionError):
+                    select_node(**kwargs)
+            status['broker']['backend'] = 'amd'
+            self.assertEqual(select_node(**kwargs)[0].node_id, 'mac')

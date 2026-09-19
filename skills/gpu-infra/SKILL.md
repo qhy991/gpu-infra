@@ -33,12 +33,17 @@ owners:
 
 ## Heterogeneous nodes
 
-Read `docs/heterogeneous-backends.md` for Metal/Hygon setup and qualification limits.
+Read `docs/heterogeneous-backends.md` for Metal/Hygon/AMD setup and qualification limits.
 Catalog v2 supports explicit local/SSH transports. Require the backend capability
 when routing; catalog tags do not prove runtime support. Metal requires explicit
 cooperative occupancy scope and does not claim external GPU idleness. Hygon
 requires a qualified HIP toolchain and device ordinal mapping. `local` task
 stages remain CPU-only regardless of the Fleet transport.
+
+AMD is a distinct `amd` backend and requires an explicitly qualified system
+occupancy probe with HIP ordinals. Do not route it as Hygon. Cake integration
+requires broker status `allocation_environment: gpuq_v1`, with daemon-owned
+GPUQ_JOB_ID/GPUQ_MODE; absence is a compatibility refusal before authoring.
 
 ## Select the smallest complete path
 

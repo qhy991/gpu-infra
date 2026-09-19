@@ -284,6 +284,7 @@ class KernelInfraServer:
             "broker": {
                 "version": broker.get("version"),
                 "broker_version": broker.get("broker_version"),
+                "allocation_environment": broker.get("allocation_environment"),
                 "backend": broker.get("backend"),
                 "occupancy_scope": broker.get("occupancy_scope"),
                 "external_occupancy": broker.get("external_occupancy"),

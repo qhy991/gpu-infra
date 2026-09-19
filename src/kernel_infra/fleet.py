@@ -445,7 +445,7 @@ def select_node(
             broker = status.get("broker", {})
             if broker.get("probe_error"):
                 reasons.append("broker_probe_error")
-            expected = {"cuda": "nvidia", "nvidia": "nvidia", "metal": "metal", "hygon": "hygon"}
+            expected = {"cuda": "nvidia", "nvidia": "nvidia", "metal": "metal", "hygon": "hygon", "amd": "amd"}
             for capability in required_capabilities & expected.keys():
                 actual = broker.get("backend")
                 # Legacy brokers are NVIDIA-only; never infer an exotic backend.
