@@ -7,6 +7,9 @@
 - `agent-gpu-broker` remains the sole owner of per-host GPU allocation and queue
   policy. A broker stage runs through `gpu-run`; a CPU-only service request is
   legal only when the GPU service itself is held by a broker allocation.
+- Before GPU staging, submission or release, follow the agent-facing
+  [GPU lease lifecycle](skills/gpu-infra/SKILL.md#gpu-lease-lifecycle), which owns
+  phase planning, resource-hold discipline and authorized release verification.
 - A `local` stage must be provably CPU-only and uses the daemon's bounded local
   capacity. It must never inherit or select a GPU outside the broker.
 - `src/kernel_infra/adapters/cuda_container.py` is the canonical owner of

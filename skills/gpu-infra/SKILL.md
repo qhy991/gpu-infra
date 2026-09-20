@@ -1,6 +1,6 @@
 ---
 name: gpu-infra
-description: "Operate GPU Infra for agent-driven CUDA/kernel evaluation: validate task contracts, submit one or many immutable candidates, monitor fixed-node runs, collect evidence, manage broker-held FIBServe services, and diagnose A800/B200 fleet or GPU-broker failures. Use for GPU Infra, the gpu-infra repository, kernelctl, PTXBench/FIBServe, KDA imports, or agent-gpu-broker-backed experiments; do not use for ordinary kernel editing without an evaluation or infrastructure task."
+description: "Operate GPU Infra for agent-driven CUDA/kernel evaluation: validate task contracts, submit immutable candidates, monitor fixed-node runs, collect evidence, manage GPU lease acquisition/release and broker-held FIBServe services, and diagnose GPU-broker failures. Use for GPU Infra, kernelctl, PTXBench/FIBServe, KDA imports, agent-gpu-broker-backed experiments, or requests to release an owned experiment's GPU; do not use for ordinary kernel editing without an evaluation or infrastructure task."
 ---
 
 # GPU Infra
@@ -27,9 +27,60 @@ owners:
    jobs, and output-path existence.
 3. Label SSH, daemon, broker, or collector failure `unknown`. Never infer idle,
    completion, correctness, or success from an unavailable observer.
-4. Decide which mode below is needed. Do not add a campaign database, second
+4. Apply the GPU lease lifecycle below, then select the execution mode. Do not add a campaign database, second
    queue, alternate allocator, automatic failover, or new digest merely for
    convenience.
+
+## GPU lease lifecycle
+
+**Reserve a GPU only for the minimum necessary device-work interval.** Treat
+host preparation, device execution and host-only result processing as separate
+resource phases. A lease is owned by the broker, not by an agent's activity guess.
+
+1. **Prepare without a lease.** Complete provider authoring, downloads, CPU-only
+   compilation, input generation and CPU oracle work before requesting a GPU.
+   Use bounded local stages with no device access for that work. A CPU-only
+   visibility mask belongs to that local child, never to the later broker request;
+   the broker owns device selection and mapping.
+2. **Bound the device phase.** Acquire just before device loading, transfers and
+   execution. Include required synchronization and device-to-host observations.
+   Move bulk host-only comparisons and report generation after the device phase
+   when retained host snapshots allow the same checks. Do not submit a known
+   CPU-dominated monolithic evaluator as if all of its wall time needed an
+   exclusive GPU: first isolate its phases or establish the shortest indivisible
+   interval required by its evaluation protocol.
+3. **Release at a real boundary.** Complete outstanding device operations, retain
+   all outputs needed by host checks, and end the worker's device ownership before
+   the broker releases the allocation. Any later GPU work needs a fresh admitted
+   lease and valid device state. Keep required correctness checks, fresh outputs,
+   warmup/cache policy and paired-measurement boundaries unchanged; do not split
+   a comparison that requires one continuous exclusive allocation. Host validation
+   may remain pending after resource release, so release is not result acceptance.
+4. **Do not infer release safety from utilization.** Zero utilization, a quiet log,
+   elapsed time or a CPU-busy process does not prove that it cannot launch another
+   kernel. Never unlink lock files, mark a live lease free, or suspend a
+   device-owning worker and lend its GPU to someone else. Persistent services stay
+   within their declared lifecycle and active-consumer/idle-grace policy.
+5. **Honor an explicit release request for the identified task.** Established
+   ownership plus the user's request authorizes stopping that task; do not ask
+   again merely because cancellation is required. Prevent its launcher/watchdog
+   from immediately resubmitting, then cancel the exact run through its owning
+   daemon/broker. If a declared checkpoint/release/resume protocol is unavailable,
+   cancellation ends that evaluation; do not invent an in-place unlock/resume.
+   For necessary process cleanup, verify UID, PID start identity and task ancestry,
+   signal only those owned processes, prefer graceful termination and verify exit.
+   A read-only status request or idle observation alone does not authorize this.
+6. **Verify the release.** Check the allocator's terminal/absent lease, the end of
+   the task's device processes/contexts, and the absence of its unintended queued
+   resubmissions. If observation fails, report release as unverified. Report other
+   workloads separately: another job taking the GPU does not mean this release
+   failed, and authorizes no intervention in that job. Preserve logs, candidates
+   and receipts; cancelled work is not a completed or accepted experiment.
+
+Change phase boundaries on a successor source/executor and validate the preserved
+workload, oracle and timing contract before a new run. Do not patch a running
+frozen experiment, silently weaken validation, or claim this agent guidance adds
+automatic phase release to an evaluator that does not implement it.
 
 ## Select the smallest complete path
 
@@ -175,8 +226,8 @@ status/wait/snapshot/frontier/fetch validate the route-owned run evidence.
 - For tmux experiment monitoring, use the available `operator-exp-monitor`
   skill when applicable. Capture panes and live processes before intervening;
   never send keys without explicit authorization.
-- Cancelling or stopping is allowed only for the exact test run/service created
-  by the current authorized workflow. Never reorder or cancel production jobs.
+- Follow [GPU lease lifecycle](#gpu-lease-lifecycle) for task release and scoped
+  cancellation. Unrelated or production jobs are outside that authorization.
 - On completion, stop isolated services/daemons/brokers gracefully; verify
   sockets, tmux servers, processes, broker jobs, GPU allocations, locks, and
   endpoints are gone. Preserve route/run/mirror/report evidence.
