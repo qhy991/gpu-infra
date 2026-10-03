@@ -11,6 +11,15 @@
 
 ### Fixed
 
+- Pin a broker successor combining the verified B300-M3 `807aea5` source with
+  main's scheduler hardening, bounded probes, truthful observation age and scoped
+  FIFO ETA. Retain GPU scope, admission receipts and existing FIFO allocation
+  (`agent-gpu-broker`, pinned broker CI).
+- Accept and validate optional broker 0.7 GPU scope in service admission
+  receipts while preserving legacy receipt digests; require actual observation
+  freshness for diagnosis. Add a real-socket test across both packages
+  (`service_attestation.py`, `services.py`, `diagnostics.py`, integration test).
+
 - Reject duplicate daemon owners before recovery can cancel live jobs, including
   the same state directory with different sockets. Release startup ownership on
   failure (`server.py`, lifecycle regressions).

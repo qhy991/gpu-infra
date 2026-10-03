@@ -189,6 +189,8 @@ class NodeStatusTests(unittest.IsolatedAsyncioTestCase):
                 "broker_version": "0.6.0",
                 "instance_id": "broker-instance",
                 "updated_at": "2026-08-27T08:00:00+00:00",
+                "gpu_observed_at": "2026-08-27T08:00:00+00:00",
+                "gpu_observation_age_seconds": 0.1,
                 "probe_error": None,
                 "shared_capacity": 2,
                 "gpus": [

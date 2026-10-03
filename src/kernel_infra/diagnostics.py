@@ -60,6 +60,7 @@ def _job_view(job: dict[str, Any] | None, location: str) -> dict[str, Any] | Non
         "mode",
         "gpu_count",
         "gpu_ids",
+        "allowed_gpu_ids",
         "submitted_at",
         "started_at",
         "wait_seconds",
@@ -357,9 +358,18 @@ def build_diagnosis(
            for jobs, field in ((running, "run_seconds"), (queue, "wait_seconds"))
            for job in jobs):
         broker_unknown = True
+    freshness_known = (
+        _parse_timestamp(snapshot.get("gpu_observed_at")) is not None
+        and _number(snapshot.get("gpu_observation_age_seconds")) is not None
+    )
+    if not freshness_known:
+        broker_unknown = True
     effective_broker_error = broker_error
     if broker is not None and broker_unknown and not probe_error and broker_error is None:
-        effective_broker_error = "broker status is incomplete or malformed"
+        effective_broker_error = (
+            "broker GPU probe freshness is unavailable" if not freshness_known
+            else "broker status is incomplete or malformed"
+        )
 
     running_jobs = {
         str(job["job_id"]): job
@@ -423,6 +433,7 @@ def build_diagnosis(
             "instance_id": snapshot.get("instance_id"),
             "updated_at": snapshot.get("updated_at"),
             "gpu_observed_at": snapshot.get("gpu_observed_at"),
+            "gpu_observation_age_seconds": snapshot.get("gpu_observation_age_seconds"),
             "probe_error": probe_error,
             "shared_capacity": snapshot.get("shared_capacity"),
             "gpus": gpus,

@@ -38,7 +38,7 @@ READY_OR_TERMINAL = frozenset({"ready", *SERVICE_TERMINAL_STATES})
 
 def validate_managed_broker(snapshot: dict[str, Any]) -> None:
     version = snapshot.get("broker_version")
-    match = re.fullmatch(r"(\d+)\.(\d+)(?:\.\d+)?", str(version or ""))
+    match = re.fullmatch(r"(\d+)\.(\d+)(?:\.\d+)?(?:\.dev\d+)?", str(version or ""))
     if match is None or (int(match.group(1)), int(match.group(2))) < (0, 6):
         raise RuntimeError(
             "managed services require a broker declaring version 0.6 or newer"

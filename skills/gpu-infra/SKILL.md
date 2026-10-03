@@ -102,7 +102,9 @@ gpu-run --label kernel-check --mode shared --gpu-count 1 \
 Use `exclusive` for measurements. Direct diagnosis reports `scope=broker` and
 cannot resolve a daemon run id. `diagnose [RUN_ID] --socket SOCKET` explicitly
 selects a daemon; there is no automatic fallback. Long direct-broker queue waits
-also return exit 3. Status `updated_at` does not establish GPU probe freshness.
+also return exit 3. Require `gpu_observed_at` and `gpu_observation_age_seconds`; missing freshness
+or broker `probe_error` is unknown. Status `updated_at` cannot substitute for a
+successful probe. The pinned broker reports stale observations itself.
 On a broker supporting GPU scope, inspect the admission's `allowed_gpu_ids`:
 a request pinned to GPU 0 can block later jobs under strict FIFO even while
 other GPUs are idle. Do not infer a stuck scheduler or silently change scope.

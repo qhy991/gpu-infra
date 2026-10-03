@@ -58,6 +58,8 @@ def broker_snapshot(*, running=None, queue=None, probe_error=None):
         "broker_version": "0.6.0",
         "instance_id": "broker",
         "updated_at": OBSERVED_AT,
+        "gpu_observed_at": OBSERVED_AT,
+        "gpu_observation_age_seconds": 0.1,
         "probe_error": probe_error,
         "shared_capacity": 2,
         "gpus": [{"gpu_id": 0, "state": "exclusive"}],
@@ -81,6 +83,14 @@ def diagnose(state, *, request=None, broker=None, broker_error=None):
 
 
 class DiagnosisTests(unittest.TestCase):
+    def test_legacy_probe_freshness_is_unknown_not_replaced_by_status_time(self):
+        snapshot = broker_snapshot()
+        del snapshot["gpu_observed_at"]
+        del snapshot["gpu_observation_age_seconds"]
+        value = diagnose(run_state(), broker=snapshot)
+        self.assertEqual(value["verdict"], "unknown")
+        self.assertIn("freshness", value["broker"]["error"])
+
     def test_missing_broker_list_is_unknown(self):
         for field in ("gpus", "running", "queue"):
             snapshot = broker_snapshot()

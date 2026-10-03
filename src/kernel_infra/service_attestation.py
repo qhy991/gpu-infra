@@ -140,7 +140,8 @@ def validate_broker_admission_receipt(value: Any) -> dict[str, Any]:
     }
     if (
         not isinstance(value, dict)
-        or set(value) != required
+        or not required.issubset(value)
+        or set(value) - required - {"allowed_gpu_ids"}
         or value.get("schema") != BROKER_ADMISSION_SCHEMA
     ):
         raise RuntimeError("invalid broker admission receipt")
@@ -178,6 +179,16 @@ def validate_broker_admission_receipt(value: Any) -> dict[str, Any]:
         raise RuntimeError("broker admission receipt has invalid GPU ids")
     if value.get("gpu_count") != len(gpu_ids):
         raise RuntimeError("broker admission GPU count disagrees with allocation")
+    if len(set(gpu_ids)) != len(gpu_ids):
+        raise RuntimeError("broker admission GPU ids must be unique")
+    allowed = value.get("allowed_gpu_ids")
+    if allowed is not None:
+        if (not isinstance(allowed, list) or not allowed
+                or any(isinstance(gpu, bool) or not isinstance(gpu, int) or gpu < 0
+                       for gpu in allowed)
+                or len(set(allowed)) != len(allowed)
+                or not set(gpu_ids).issubset(allowed)):
+            raise RuntimeError("broker admission allocation violates GPU scope")
     if not isinstance(value.get("started_at"), str) or not value["started_at"]:
         raise RuntimeError("broker admission receipt is not a started job")
     if not isinstance(value.get("env_keys"), list) or not all(

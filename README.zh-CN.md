@@ -73,7 +73,7 @@ smoke 示例演示 evaluator 合同，不代表 B300 CUDA 算子通过验收。�
 - `diagnose --broker-socket SOCKET`：直接读取 broker，输出 `scope=broker`；没有 daemon run 的含义。
 - `diagnose [RUN_ID] --socket SOCKET`：关联 daemon 的 request/state、broker 与 service，输出 `scope=node`。
 
-两个目标显式选择，不会连接失败后悄悄换目标。退出码 `0` 表示未观察到需关注条件，`3` 表示长排队或疑似停滞，`1` 表示观察不可用或证据畸形。`--attention-after` 只是提醒阈值，不替代 task timeout。CPU 阶段耗时久或 GPU 利用率为零都不能单独证明卡死；broker 的 `updated_at` 也只代表状态响应时间，不能证明 GPU probe 新鲜。诊断不会自动取消、重启、提交或迁移作业。
+两个目标显式选择，不会连接失败后悄悄换目标。退出码 `0` 表示未观察到需关注条件，`3` 表示长排队或疑似停滞，`1` 表示观察不可用或证据畸形。`--attention-after` 只是提醒阈值，不替代 task timeout。CPU 阶段耗时久或 GPU 利用率为零都不能单独证明卡死；固定版本 broker 输出 `gpu_observed_at` 与 `gpu_observation_age_seconds`。探测失败/陈旧或旧版缺少这些字段时输出 `unknown`，不会拿 `updated_at` 代替探测新鲜度。诊断不会自动取消、重启、提交或迁移作业。
 
 ## Agent 与进阶用法
 

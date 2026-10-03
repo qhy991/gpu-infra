@@ -50,6 +50,8 @@ class BrokerClientTests(unittest.TestCase):
     def test_direct_diagnosis_runs_cli_without_daemon_or_mutation(self):
         snapshot = {
             "version": 2, "broker_version": "0.7.0", "instance_id": "fixture",
+            "gpu_observed_at": "2026-10-03T07:00:00+00:00",
+            "gpu_observation_age_seconds": 0.1,
             "probe_error": None, "gpus": [{"gpu_id": 0, "state": "exclusive"}],
             "running": [], "queue": [{"job_id": "job", "wait_seconds": 600}],
             "recent": [],

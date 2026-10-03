@@ -97,8 +97,9 @@ there is no silent fallback between them.
 Exit codes are 0 for no observed attention condition, 3 for long queue waits or
 suspected stalls, and 1 for unavailable/malformed evidence. `--attention-after`
 is advisory; task queue/run timeouts remain authoritative. A long CPU stage or
-zero utilization alone does not prove a stall. Broker `updated_at` is a status
-response time, not proof of a fresh GPU probe. Diagnosis never cancels,
+zero utilization alone does not prove a stall. The pinned broker reports `gpu_observed_at` and `gpu_observation_age_seconds`.
+A failed/stale probe or an older broker without these fields yields `unknown`;
+`updated_at` never substitutes for probe freshness. Diagnosis never cancels,
 restarts, submits, or reroutes work.
 
 ## Agent entry point and advanced paths

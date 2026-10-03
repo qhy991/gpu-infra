@@ -1922,7 +1922,10 @@ def _print_diagnosis(diagnosis: dict[str, Any]) -> None:
         print(f"broker error: {broker['error']}")
     if broker.get("probe_error"):
         print(f"broker probe error: {broker['probe_error']}")
-    print("GPU states are broker observations; status time does not prove probe freshness.")
+    print(
+        f"GPU observation at={broker.get('gpu_observed_at') or 'unknown'} "
+        f"age={_seconds_text(broker.get('gpu_observation_age_seconds'))}"
+    )
 
     print("GPUS")
     if not broker["gpus"]:
@@ -1961,6 +1964,7 @@ def _print_diagnosis(diagnosis: dict[str, Any]) -> None:
         print(
             f"  {job.get('position', '?')}. {job['job_id']} "
             f"wait={_seconds_text(job.get('wait_seconds'))} "
+            f"allowed={job.get('allowed_gpu_ids')} "
             f"eta={_seconds_text(job.get('eta_seconds'))} label={job.get('label')}"
         )
 

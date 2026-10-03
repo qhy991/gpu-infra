@@ -12,6 +12,13 @@
 
 ### Fixed
 
+- 固定 broker 后继版本，整合已核实的 B300-M3 `807aea5` 源码、主线 scheduler
+  保护、探测限时、真实观察时龄与限定卡 FIFO ETA；保留 GPU scope、admission
+  回执和现有 FIFO 分配（`agent-gpu-broker`、固定 broker CI）。
+- service admission 接受并验证 broker 0.7 的可选 GPU scope，保留旧回执 digest；
+  诊断要求真实观察新鲜度，并加入跨两个包的真实 socket 集成测试
+  （`service_attestation.py`、`services.py`、`diagnostics.py`、集成测试）。
+
 - daemon 在恢复可能取消 live job 前拒绝重复 owner，覆盖同一 state directory
   配不同 socket 的情况；启动失败释放所有权（`server.py`、生命周期回归）。
 - run/service 恢复复用一个有超时的 broker 客户端，并严格验证取消回执；修复
