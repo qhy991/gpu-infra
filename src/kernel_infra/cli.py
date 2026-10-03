@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import concurrent.futures
 import json
+import math
 import os
 import signal
 import socket
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import ContractError, digest_json, load_task
+from .broker import query_broker
+from .diagnostics import build_diagnosis
 from .fleet import (
     FLEET_ENDPOINTS_SCHEMA,
     FLEET_BATCH_SUMMARY_SCHEMA,
@@ -57,6 +60,7 @@ from .store import RunStore, TERMINAL_STATES, utc_now
 DEFAULT_SOCKET = Path("/tmp/kernel-infra.sock")
 DEFAULT_BROKER_SOCKET = Path("/tmp/agent-gpu-broker.sock")
 DEFAULT_STATE_DIR = Path.home() / ".local/share/kernel-infra"
+DIAGNOSE_REQUEST_TIMEOUT_S = 15.0
 
 
 def _positive_int(value: str) -> int:
@@ -74,8 +78,8 @@ def _nonnegative_float(value: str) -> float:
         result = float(value)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"invalid number: {value}") from exc
-    if result < 0:
-        raise argparse.ArgumentTypeError("value must be non-negative")
+    if not math.isfinite(result) or result < 0:
+        raise argparse.ArgumentTypeError("value must be finite and non-negative")
     return result
 
 
@@ -93,6 +97,21 @@ def _parser() -> argparse.ArgumentParser:
     node_status = sub.add_parser("node-status", help="show one node capability state")
     _client_socket(node_status)
     node_status.add_argument("--json", action="store_true")
+
+    diagnose = sub.add_parser(
+        "diagnose", help="correlate GPU, broker, service, and run progress"
+    )
+    diagnosis_target = diagnose.add_mutually_exclusive_group()
+    diagnosis_target.add_argument("--socket", type=Path, default=DEFAULT_SOCKET)
+    diagnosis_target.add_argument(
+        "--broker-socket", type=Path,
+        help="inspect the broker directly without a kernel-infrad (no run id)",
+    )
+    diagnose.add_argument(
+        "--attention-after", type=_nonnegative_float, default=300.0
+    )
+    diagnose.add_argument("--json", action="store_true")
+    diagnose.add_argument("run_id", nargs="?")
 
     fleet_check = sub.add_parser(
         "fleet-check", help="validate one cross-host node catalog"
@@ -331,6 +350,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_serve(args))
     if args.command == "node-status":
         return _node_status(args)
+    if args.command == "diagnose":
+        return _diagnose(args)
     if args.command == "fleet-check":
         return _fleet_check(args)
     if args.command == "fleet-endpoints-check":
@@ -491,6 +512,44 @@ def _node_status(args: argparse.Namespace) -> int:
         f"queue={len(broker['queue'])} active_runs={len(node['active_runs'])} "
         f"ready_services={len(node['ready_deployments'])}"
     )
+    return 0
+
+
+def _diagnose(args: argparse.Namespace) -> int:
+    if getattr(args, "broker_socket", None) is not None:
+        if args.run_id:
+            print("kernelctl: a run id requires the owning daemon --socket", file=sys.stderr)
+            return 2
+        broker, error = None, None
+        try:
+            broker = query_broker(args.broker_socket)
+        except RuntimeError as exc:
+            error = str(exc)
+        diagnosis = build_diagnosis(
+            observed_at=utc_now(), attention_after_s=args.attention_after,
+            run_states=[], run_requests={}, request_errors={},
+            broker=broker, broker_error=error, services=[],
+        )
+        diagnosis["scope"] = "broker"
+    else:
+        response = _request(
+            args.socket,
+            {"op": "diagnose", "run_id": args.run_id,
+             "attention_after_s": args.attention_after},
+            timeout_s=DIAGNOSE_REQUEST_TIMEOUT_S,
+        )
+        if response is None:
+            return 1
+        diagnosis = response["diagnosis"]
+        diagnosis["scope"] = "node"
+    if args.json:
+        print(json.dumps(diagnosis, indent=2, ensure_ascii=False))
+    else:
+        _print_diagnosis(diagnosis)
+    if diagnosis["verdict"] == "unknown":
+        return 1
+    if diagnosis["verdict"] == "attention":
+        return 3
     return 0
 
 
@@ -1800,9 +1859,16 @@ def _frontier(args: argparse.Namespace) -> int:
     return 0
 
 
-def _request(socket_path: Path, value: dict[str, Any]) -> dict[str, Any] | None:
+def _request(
+    socket_path: Path,
+    value: dict[str, Any],
+    *,
+    timeout_s: float | None = None,
+) -> dict[str, Any] | None:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
+        if timeout_s is not None:
+            client.settimeout(timeout_s)
         client.connect(str(socket_path.expanduser()))
         connection = client.makefile("rwb")
         with client, connection:
@@ -1834,6 +1900,92 @@ def _atomic_new_json(path: Path, value: Any) -> None:
             os.unlink(temporary)
         except FileNotFoundError:
             pass
+
+
+def _seconds_text(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "unknown"
+    return f"{float(value):.1f}s"
+
+
+def _print_diagnosis(diagnosis: dict[str, Any]) -> None:
+    broker = diagnosis["broker"]
+    summary = diagnosis["summary"]
+    print(
+        f"{diagnosis.get('scope', 'node').upper()} verdict={diagnosis['verdict']} "
+        f"broker={broker.get('broker_version') or 'unknown'} "
+        f"broker_observation={broker['observation']} "
+        f"running_jobs={summary['running_broker_jobs']} "
+        f"queue={summary['queued_broker_jobs']}"
+    )
+    if broker.get("error"):
+        print(f"broker error: {broker['error']}")
+    if broker.get("probe_error"):
+        print(f"broker probe error: {broker['probe_error']}")
+    print("GPU states are broker observations; status time does not prove probe freshness.")
+
+    print("GPUS")
+    if not broker["gpus"]:
+        print("  -")
+    for gpu in broker["gpus"]:
+        details: list[str] = []
+        jobs = gpu.get("jobs", [])
+        if jobs:
+            details.append(
+                "jobs=" + ",".join(str(job.get("label", job.get("job_id", "?"))) for job in jobs)
+            )
+        if gpu.get("pids"):
+            details.append("pids=" + ",".join(map(str, gpu["pids"])))
+        if gpu.get("state") == "shared":
+            details.append(
+                f"shared={gpu.get('shared_used', '?')}/"
+                f"{gpu.get('shared_capacity', '?')}"
+            )
+        suffix = f" {' '.join(details)}" if details else ""
+        print(f"  {gpu.get('gpu_id', '?')}: {gpu.get('state', 'unknown')}{suffix}")
+
+    print("BROKER RUNNING")
+    if not broker["running"]:
+        print("  -")
+    for job in broker["running"]:
+        gpu_ids = ",".join(map(str, job.get("gpu_ids") or [])) or "-"
+        print(
+            f"  {job['job_id']} gpus={gpu_ids} mode={job.get('mode')} "
+            f"run={_seconds_text(job.get('run_seconds'))} label={job.get('label')}"
+        )
+
+    print("BROKER QUEUE")
+    if not broker["queue"]:
+        print("  -")
+    for job in broker["queue"]:
+        print(
+            f"  {job.get('position', '?')}. {job['job_id']} "
+            f"wait={_seconds_text(job.get('wait_seconds'))} "
+            f"eta={_seconds_text(job.get('eta_seconds'))} label={job.get('label')}"
+        )
+
+    print("RUNS")
+    if not diagnosis["runs"]:
+        print("  -")
+    for run in diagnosis["runs"]:
+        stage = run.get("stage_id") or "-"
+        gpu_ids = ",".join(map(str, run.get("gpu_ids", []))) or "-"
+        print(
+            f"  {run['run_id']} diagnosis={run['diagnosis']} "
+            f"state={run['state']} stage={stage} gpus={gpu_ids} "
+            f"no_progress={_seconds_text(run.get('no_progress_seconds'))} "
+            f"reason={run['reason']}"
+        )
+
+    print("SERVICES")
+    if not diagnosis["services"]:
+        print("  -")
+    for service in diagnosis["services"]:
+        gpu_ids = ",".join(map(str, service.get("gpu_ids") or [])) or "-"
+        print(
+            f"  {service['deployment_id']} state={service.get('state')} "
+            f"gpus={gpu_ids} consumers={service.get('active_consumer_count', 0)}"
+        )
 
 
 def _print_runs(runs: list[dict[str, Any]]) -> None:

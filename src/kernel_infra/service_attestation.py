@@ -5,8 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import socket
-import struct
 import subprocess
 import tempfile
 import urllib.error
@@ -16,52 +14,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .broker import _broker_request, query_broker
+
 SCHEMA = "kernelinfra.service-deployment.v2"
 BROKER_ADMISSION_SCHEMA = "gpuq.admission-receipt.v1"
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _broker_request(
-    socket_path: Path, request: dict[str, Any]
-) -> tuple[dict[str, Any], dict[str, int | None]]:
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        client.settimeout(10.0)
-        client.connect(str(socket_path.expanduser().resolve()))
-        peer = {"pid": None, "uid": None, "gid": None}
-        if hasattr(socket, "SO_PEERCRED"):
-            raw_peer = client.getsockopt(
-                socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")
-            )
-            peer["pid"], peer["uid"], peer["gid"] = struct.unpack("3i", raw_peer)
-        connection = client.makefile("rwb")
-        with client, connection:
-            connection.write(
-                (json.dumps(request, separators=(",", ":")) + "\n").encode()
-            )
-            connection.flush()
-            value = json.loads(connection.readline())
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"cannot query broker at {socket_path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise RuntimeError("broker returned a non-object payload")
-    return value, peer
-
-
-def query_broker(socket_path: Path) -> dict[str, Any]:
-    value, peer = _broker_request(socket_path, {"op": "status"})
-    snapshot = value.get("snapshot")
-    if not isinstance(snapshot, dict):
-        raise RuntimeError("broker returned an invalid status payload")
-    return {
-        **snapshot,
-        "_kernelinfra_peer_pid": peer["pid"],
-        "_kernelinfra_peer_uid": peer["uid"],
-        "_kernelinfra_peer_gid": peer["gid"],
-    }
 
 
 def query_broker_admission(

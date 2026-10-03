@@ -132,6 +132,18 @@ class RunStore:
         except FileNotFoundError as exc:
             raise KeyError(f"run not found: {run_id}") from exc
 
+    def read_request(self, run_id: str) -> dict[str, Any]:
+        path = self.run_dir(run_id) / "request.json"
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise KeyError(f"run request not found: {run_id}") from exc
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid run request for {run_id}: {exc}") from exc
+        if not isinstance(value, dict):
+            raise ValueError(f"invalid run request for {run_id}: expected object")
+        return value
+
     def update_state(
         self,
         run_id: str,
