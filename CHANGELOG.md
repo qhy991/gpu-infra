@@ -11,6 +11,10 @@
 
 ### Fixed
 
+- Keep the pinned broker repair on the 0.7 maintenance line for frozen B300-M3
+  NCU consumers that require `0.7.*` receipts; deployment preflight caught the
+  incompatible 0.8 candidate before production cutover (`agent-gpu-broker`).
+
 - Pin a broker successor combining the verified B300-M3 `807aea5` source with
   main's scheduler hardening, bounded probes, truthful observation age and scoped
   FIFO ETA. Retain GPU scope, admission receipts and existing FIFO allocation
