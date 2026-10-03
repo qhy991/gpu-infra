@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .broker import cancel_broker_job
 from .contracts import ContractError, StageSpec, TaskSpec, load_task
 from .frontier import rebuild_frontier
 from .results import aggregate_run_result, load_stage_result
@@ -62,35 +63,7 @@ class RunManager:
         return self.store.recover_interrupted()
 
     async def _cancel_broker_job(self, job_id: str) -> bool:
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_unix_connection(self.broker_socket), timeout=5.0
-            )
-        except (OSError, asyncio.TimeoutError) as exc:
-            raise RuntimeError(
-                f"cannot reconcile broker job {job_id} at {self.broker_socket}: {exc}"
-            ) from exc
-        try:
-            request = json.dumps({"op": "cancel", "job_id": job_id}) + "\n"
-            writer.write(request.encode("utf-8"))
-            await writer.drain()
-            line = await asyncio.wait_for(reader.readline(), timeout=30.0)
-            response = json.loads(line)
-            if response.get("type") != "cancelled" or not isinstance(
-                response.get("ok"), bool
-            ):
-                raise RuntimeError(f"invalid broker cancel response: {response!r}")
-            return bool(response["ok"])
-        except (OSError, asyncio.TimeoutError, json.JSONDecodeError) as exc:
-            raise RuntimeError(
-                f"failed to reconcile broker job {job_id}: {exc}"
-            ) from exc
-        finally:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except (BrokenPipeError, ConnectionResetError, OSError):
-                pass
+        return await asyncio.to_thread(cancel_broker_job, self.broker_socket, job_id)
 
     def submit(
         self,

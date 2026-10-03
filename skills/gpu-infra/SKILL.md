@@ -25,6 +25,8 @@ owners:
 2. Inspect before mutation: clean/dirty Git state, exact commit/version, daemon
    socket, broker status, state-disk free bytes, active runs/services, production
    jobs, and output-path existence.
+   Use `kernelctl diagnose [RUN_ID] --attention-after SECONDS` for the correlated
+   read-only GPU/queue/run view; use `--json` for automation.
 3. Label SSH, daemon, broker, or collector failure `unknown`. Never infer idle,
    completion, correctness, or success from an unavailable observer.
 4. Apply the GPU lease lifecycle below, then select the execution mode. Do not add a campaign database, second
@@ -84,7 +86,30 @@ automatic phase release to an evaluator that does not implement it.
 
 ## Select the smallest complete path
 
-### One node, direct staged evaluation
+### Existing device command: broker only
+
+Use the installed `gpuq` / `gpu-run` on a shared node; do not start another broker.
+An existing correctness, benchmark or profiler command does not need a task,
+service, fleet catalog or GPU Infra daemon:
+
+```bash
+gpuq status --json
+kernelctl diagnose --broker-socket /tmp/agent-gpu-broker.sock --json
+gpu-run --label kernel-check --mode shared --gpu-count 1 \
+  --queue-timeout 30m --run-timeout 5m -- python test.py
+```
+
+Use `exclusive` for measurements. Direct diagnosis reports `scope=broker` and
+cannot resolve a daemon run id. `diagnose [RUN_ID] --socket SOCKET` explicitly
+selects a daemon; there is no automatic fallback. Long direct-broker queue waits
+also return exit 3. Require `gpu_observed_at` and `gpu_observation_age_seconds`; missing freshness
+or broker `probe_error` is unknown. Status `updated_at` cannot substitute for a
+successful probe. The pinned broker reports stale observations itself.
+On a broker supporting GPU scope, inspect the admission's `allowed_gpu_ids`:
+a request pinned to GPU 0 can block later jobs under strict FIFO even while
+other GPUs are idle. Do not infer a stuck scheduler or silently change scope.
+
+### One node, staged evaluation with durable inputs
 
 Validate the task, submit immutable candidates, and return immediately:
 
@@ -92,6 +117,7 @@ Validate the task, submit immutable candidates, and return immediately:
 kernelctl task-check task.json
 kernelctl submit-many --task task.json candidate-a candidate-b
 kernelctl status
+kernelctl diagnose --attention-after 300
 kernelctl frontier --task task.json
 ```
 
@@ -99,6 +125,11 @@ kernelctl frontier --task task.json
 broker `shared` capacity; sanitizer, benchmark, and profiler stages must use
 `exclusive`. CPU-only compilation uses bounded `local` stages and must not
 inherit or select a GPU.
+
+Interpret diagnosis exit 0 as observed without an attention condition, 3 as a
+long wait or suspected stall, and 1 as unknown observation. `long_wait` is not
+proof of a hang. Never turn diagnosis into automatic cancel, restart, or
+reroute; task queue/run timeouts remain authoritative.
 
 ### Reusable PTXBench/FIBServe GPU service
 

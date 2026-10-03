@@ -23,7 +23,13 @@ broker GPU/running/queue snapshot.
 
 ```bash
 kernelctl node-status --socket /tmp/kernel-infra.sock --json
+kernelctl diagnose --socket /tmp/kernel-infra.sock --attention-after 300
 ```
+
+`node-status` is a routing/capability projection. `diagnose` is the operator and
+Agent view for current GPU custody, broker jobs/queue, active services, and run
+progress. It is read-only; exit 3 requests attention and exit 1 means the
+observer is unknown, never that the node is idle or the run is stuck.
 
 If SSH, daemon, broker, or JSON validation fails, fleet observation is
 `unknown`. Unknown nodes are ineligible; they are never treated as empty or

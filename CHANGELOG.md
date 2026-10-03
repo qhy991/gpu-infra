@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Integrate the previously unpublished read-only `kernelctl diagnose` path and
+  add explicit broker-only diagnosis for nodes without `kernel-infrad`. Long
+  broker queue waits return 3; unavailable evidence returns 1. Run and service
+  correlation remains daemon-owned (`diagnostics.py`, `cli.py`, `server.py`).
+
+### Fixed
+
+- Pin a broker successor combining the verified B300-M3 `807aea5` source with
+  main's scheduler hardening, bounded probes, truthful observation age and scoped
+  FIFO ETA. Retain GPU scope, admission receipts and existing FIFO allocation
+  (`agent-gpu-broker`, pinned broker CI).
+- Accept and validate optional broker 0.7 GPU scope in service admission
+  receipts while preserving legacy receipt digests; require actual observation
+  freshness for diagnosis. Add a real-socket test across both packages
+  (`service_attestation.py`, `services.py`, `diagnostics.py`, integration test).
+
+- Reject duplicate daemon owners before recovery can cancel live jobs, including
+  the same state directory with different sockets. Release startup ownership on
+  failure (`server.py`, lifecycle regressions).
+- Use one bounded broker transport and strict cancellation acknowledgment for
+  both run and service recovery. The old service path could accept malformed
+  responses as reconciliation (`broker.py`, `runner.py`, `services.py`,
+  `service_attestation.py`).
+- Reject nonfinite diagnostic thresholds/timing and stop treating CPU stage age
+  alone as evidence of a stall (`diagnostics.py`, diagnostic regressions).
+
+### Changed
+
+- Shorten both READMEs around broker-only, staged, service and fleet use; reuse
+  the installed shared-node broker. Describe six core concepts and keep derived
+  views separate from lifecycle owners (`README*`, `DESIGN.md`, Agent skill).
+- Record B300-M3 deployment drift, scoped FIFO blocking and remaining probe
+  freshness limitations in the dated architecture audit. Preserve historical
+  qualification records and compatibility identifiers (`docs/`).
+
 ## 0.16.0 — 2026-08-25
 
 - Preflight managed service compatibility before deployment acceptance: require

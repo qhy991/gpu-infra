@@ -37,6 +37,8 @@
   service commit/image and broker-held deployment identity in the judge field.
   Verify a strict deployment receipt and broker-issued admission receipt before
   and after the request. Bind launch-spec and executable digests into the task.
+- A daemon must hold exclusive state-root and socket ownership before startup
+  reconciliation. Duplicate startup must fail without cancelling existing work.
 - Every stage command runs behind `exec_guard.py`; its pipe lease and process
   group are the canonical crash-cleanup boundary. Startup must reconcile any
   persisted broker job id before marking a run interrupted.
@@ -78,6 +80,11 @@
   no broker probe error, and a gpu-run client that parses unknown estimates and
   supports admission receipt output. Reject incompatibility before creating a
   deployment history; never translate unknown into a fabricated duration.
+- `kernelinfra.diagnosis.v1` is a read-only projection over run requests/state,
+  live broker GPU/job/queue observations, and active services. It must not own
+  lifecycle, persist watchdog state, cancel work, or reinterpret a task's
+  queue/run timeout. An unavailable observer is `unknown`; an attention
+  threshold is advisory and never proof by itself that a run is stuck.
 - New SHA-256 fields, fingerprints, and repeated whole-tree hashing are
   prohibited by default. Use SHA-256 only when it is required for a real
   integrity or content-addressing boundary, replaces a materially more

@@ -27,6 +27,7 @@ from .service_attestation import (
 from .service_binding import materialize_service_task
 from .service_contracts import ManagedServiceSpec, load_service_spec
 from .service_store import SERVICE_TERMINAL_STATES, ServiceStore
+from .broker import cancel_broker_job
 from .contracts import TaskSpec
 from .store import RunStore, TERMINAL_STATES, utc_now
 
@@ -37,7 +38,7 @@ READY_OR_TERMINAL = frozenset({"ready", *SERVICE_TERMINAL_STATES})
 
 def validate_managed_broker(snapshot: dict[str, Any]) -> None:
     version = snapshot.get("broker_version")
-    match = re.fullmatch(r"(\d+)\.(\d+)(?:\.\d+)?", str(version or ""))
+    match = re.fullmatch(r"(\d+)\.(\d+)(?:\.\d+)?(?:\.dev\d+)?", str(version or ""))
     if match is None or (int(match.group(1)), int(match.group(2))) < (0, 6):
         raise RuntimeError(
             "managed services require a broker declaring version 0.6 or newer"
@@ -687,24 +688,7 @@ class ServiceManager:
                 await process.wait()
 
     async def _cancel_broker_job(self, job_id: str) -> bool:
-        reader: asyncio.StreamReader
-        writer: asyncio.StreamWriter
-        try:
-            reader, writer = await asyncio.open_unix_connection(self.broker_socket)
-            writer.write(
-                (json.dumps({"op": "cancel", "job_id": job_id}) + "\n").encode()
-            )
-            await writer.drain()
-            response = json.loads(await asyncio.wait_for(reader.readline(), timeout=10))
-        except (OSError, asyncio.TimeoutError, json.JSONDecodeError) as exc:
-            raise RuntimeError(
-                f"cannot reconcile broker job {job_id} at {self.broker_socket}: {exc}"
-            ) from exc
-        finally:
-            if "writer" in locals():
-                writer.close()
-                await writer.wait_closed()
-        return bool(response.get("ok"))
+        return await asyncio.to_thread(cancel_broker_job, self.broker_socket, job_id)
 
     @staticmethod
     def _endpoint_in_use(service_url: str) -> bool:

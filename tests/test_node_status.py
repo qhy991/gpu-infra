@@ -18,6 +18,13 @@ class FakeRunStore:
                 "run_id": "active-run",
                 "task_id": "task",
                 "state": "running",
+                "stage_id": "correctness",
+                "stage_kind": "correctness",
+                "stage_index": 0,
+                "broker_job_id": "gpuq-active",
+                "gpu_ids": [0],
+                "accepted_at": "2026-08-27T07:00:00+00:00",
+                "updated_at": "2026-08-27T07:59:50+00:00",
                 "service_deployment_ids": ["service-ready"],
             },
             {
@@ -27,6 +34,27 @@ class FakeRunStore:
                 "service_deployment_ids": [],
             },
         ]
+
+    def read_request(self, run_id):
+        if run_id != "active-run":
+            raise KeyError(run_id)
+        return {
+            "run_id": run_id,
+            "stages": [
+                {
+                    "id": "correctness",
+                    "kind": "correctness",
+                    "execution": "broker",
+                    "resources": {
+                        "mode": "shared",
+                        "gpu_count": 1,
+                        "estimate_s": 10,
+                        "queue_timeout_s": 60,
+                        "run_timeout_s": 30,
+                    },
+                }
+            ],
+        }
 
 
 class FakeRunManager:
@@ -149,6 +177,49 @@ class NodeStatusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status["ready_deployments"], ["service-ready"])
         self.assertEqual(status["broker"]["broker_version"], "0.6.0")
         self.assertNotIn("_kernelinfra_peer_pid", status["broker"])
+
+    async def test_diagnose_correlates_run_with_live_broker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            server = KernelInfraServer(
+                FakeRunManager(root), FakeServices(), root / "kernel.sock"
+            )
+            broker = {
+                "version": 2,
+                "broker_version": "0.6.0",
+                "instance_id": "broker-instance",
+                "updated_at": "2026-08-27T08:00:00+00:00",
+                "gpu_observed_at": "2026-08-27T08:00:00+00:00",
+                "gpu_observation_age_seconds": 0.1,
+                "probe_error": None,
+                "shared_capacity": 2,
+                "gpus": [
+                    {
+                        "gpu_id": 0,
+                        "state": "shared",
+                        "shared_used": 1,
+                        "shared_capacity": 2,
+                    }
+                ],
+                "running": [
+                    {
+                        "job_id": "gpuq-active",
+                        "state": "running",
+                        "gpu_ids": [0],
+                        "run_seconds": 10,
+                    }
+                ],
+                "queue": [],
+                "recent": [],
+            }
+            with mock.patch("kernel_infra.server.query_broker", return_value=broker):
+                response = await server._dispatch(
+                    {"op": "diagnose", "attention_after_s": 300}
+                )
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["diagnosis"]["schema"], "kernelinfra.diagnosis.v1")
+        self.assertEqual(response["diagnosis"]["verdict"], "ok")
+        self.assertEqual(response["diagnosis"]["runs"][0]["diagnosis"], "running")
 
 
 if __name__ == "__main__":

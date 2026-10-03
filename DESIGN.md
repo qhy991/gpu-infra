@@ -1,4 +1,4 @@
-# GPU Infra v0.16 design contract
+# GPU Infra design contract
 
 ## Goal
 
@@ -7,39 +7,20 @@ GPU availability, run independent staged judges through one reusable per-host
 GPU allocator, and receive durable evidence that keeps execution completion,
 kernel validity, and performance-frontier decisions separate.
 
-## Smallest primitive set
+## Core model and optional operations
 
-1. **Task contract**: fixed workloads, comparison policy, judge identities, and
-   ordered stages.
-2. **Candidate snapshot**: a content-addressed, self-contained copy made before
-   queueing.
-3. **Run**: one task digest plus one candidate digest.
-4. **Stage**: one judge command plus either a broker resource request or a
-   CPU-only request to an already broker-managed evaluator service.
-5. **Service deployment**: one immutable service spec snapshot plus one unique
-   deployment id, broker admission, health attestation, and lifecycle.
-6. **Receipt**: immutable request identity plus observed lifecycle and exit.
-7. **Result**: validated judge output; absence or malformation is an
-   infrastructure error, never a failed correctness claim.
-8. **Frontier**: a rebuildable per-workload projection over eligible results.
-9. **Route receipt**: one catalog digest, parallel node observations,
-   eligibility/rank decision, content-addressed transport, and node/run locator.
-10. **Artifact mirror**: a verified, create-only local copy of one terminal
-    node run; it is never a lifecycle or frontier authority.
-11. **Fleet snapshot**: one ephemeral read model over prevalidated unique route
-    receipts and concurrent fixed-node lifecycle observations.
-12. **Fleet endpoint map**: current SSH, kernelctl, and socket reachability for
-    an unchanged historical node id; it owns no route or run fact.
-13. **Fleet batch request**: one bounded prevalidated submission action whose
-    outputs are ordinary independent route receipts plus a derived summary.
-14. **Fleet collection**: one create-only snapshot plus bounded terminal
-    artifact mirrors over ordinary route receipts; it owns no run fact.
-15. **Managed-service compatibility preflight**: live broker/client capability
-    proof performed before any deployment history or GPU request exists.
+1. **Task + stage**: evaluator-owned workloads, judges, gates and resource requests.
+2. **Candidate snapshot**: immutable input copied before queueing.
+3. **Run**: one task/candidate identity with ordered stages and lifecycle.
+4. **Service deployment**: optional reusable evaluator with its own broker lease.
+5. **Receipt + result**: observed execution identity and judge-owned evidence.
+6. **Route**: optional immutable node/run locator for cross-host work.
 
-No separate campaign state, agent memory, or experiment database is required.
-Agents can submit several runs, and a task digest groups the comparable
-set.
+Frontiers, mirrors, snapshots and collection summaries are projections of those
+owners. Batch submission, endpoint resolution, preflight and diagnosis are
+operations, not additional lifecycle primitives. There is no campaign database
+or second GPU allocator. An existing device command needs only `gpu-run`; it
+need not be rewritten as a task to use the broker safely.
 
 ## Canonical owners
 
@@ -68,6 +49,7 @@ set.
 | Collected bytes | per-run mirror, explicitly non-authoritative |
 | Broker runtime/version/instance | live broker status |
 | gpu-run argument capabilities | selected client executable preflight |
+| Current GPU/run diagnosis | derived read-only view over existing owners |
 
 GPU Infra never edits evaluator code, selects a winner from agent prose, or
 uses a live aggregate score as the factual timing owner.
@@ -150,6 +132,13 @@ Agent service-preflight
   -> run the exact service-start compatibility gate without mutation
   -> return checked broker/client/spec facts and create no deployment history
   -> never authorize a later start; service-start reruns the live gate
+
+Agent diagnose
+  -> read current run requests/state, active services, and one live broker view
+  -> expose GPU custody plus broker running/queue jobs
+  -> compare live job duration only with the task-owned queue/run timeout
+  -> classify normal progress, long waits, suspected contradictions, or unknown
+  -> return without persisting watchdog state, cancelling, or restarting
 ```
 
 Multiple runs advance concurrently. CPU compilation uses a separate bounded
@@ -175,8 +164,10 @@ submitting agent.
 7. Every stage command is a child of a pipe-lease execution guard. Daemon death
    closes the lease in the kernel; the guard terminates and reaps the real child
    process group.
-8. Startup reconciles every persisted broker job id before marking unfinished
-   runs `interrupted`. It never invents results or resubmits uncertain work.
+8. Startup acquires exclusive state-root and socket ownership before reconciling
+   any persisted broker job id. Duplicate startup cannot interrupt a live owner.
+   Recovery marks unfinished runs `interrupted` without inventing results or
+   resubmitting uncertain work. Persistent lock files are never unlinked.
 9. Only `completed + valid + complete workload timing` results enter the
    frontier reducer.
 10. Frontier comparison never crosses task digests.
@@ -273,6 +264,9 @@ submitting agent.
     translated into an arbitrary numeric estimate for an older client.
 41. `service-preflight` is read-only current evidence, not an authorization
     token. It creates no deployment and `service-start` must rerun the same gate.
+42. `diagnose` is a read-only derived observation. Its attention threshold may
+    surface a long wait or missing transition but cannot replace task-owned
+    timeouts, prove a hang by itself, or authorize cancellation/restart.
 
 ## Failure semantics
 
@@ -331,10 +325,14 @@ submitting agent.
 - Old/missing broker identity, broker probe error, or incompatible gpu-run
   client: reject service start before deployment state/events/logs or broker/GPU
   mutation. A compatible but busy broker may then queue normally.
+- Diagnostic daemon/broker failure: report `unknown` and exit 1, never idle or
+  stuck. A live long queue or stale local transition may request attention and
+  exit 3, but diagnosis performs no mutation and preserves the owning state.
 
 ## Deliberate exclusions
 
-v0.16 adds fail-fast managed-service compatibility, bounded terminal evidence
+v0.17 adds read-only GPU/run diagnosis on top of fail-fast managed-service
+compatibility, bounded terminal evidence
 collection, parallel submission,
 trusted cross-host routing,
 endpoint-stable post-acceptance
@@ -408,3 +406,8 @@ independently authoritative node daemons rather than a global scheduler.
 - An old production broker/client combination is rejected with no deployment
   history, while exact broker/client v0.6 passes preflight and may enter its
   ordinary queue without weakening admission semantics.
+- A live broker job within its task timeout remains `running` even when its run
+  state has no recent event; a long queue is `long_wait`, a job beyond its
+  declared timeout is `suspected_stall`, and broker failure is `unknown`.
+- Diagnosis exit codes distinguish observed-ok (0), attention (3), and unknown
+  (1), while leaving every run, service, broker job, and GPU untouched.

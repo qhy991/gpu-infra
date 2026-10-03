@@ -5,8 +5,8 @@
 ```markdown
 ## GPU kernel 评测
 
-- 涉及 kernel 正确性、性能测试、A800/B200、PTXBench、FIBServe、KDA 或 GPU 队列时，使用 `$gpu-infra`。若该 Skill 尚未安装，先读取 `/absolute/path/to/gpu-infra/skills/gpu-infra/SKILL.md`，并以当前 checkout 的 `AGENTS.md`、CLI 和 task 合同为准。
-- 提交前运行 `kernelctl task-check`；多个候选优先使用异步 `submit-many` 或 `fleet-submit-many`，让 Agent 继续并行探索，不要通过长时间 `wait` 占住工作流。
+- 涉及 kernel 正确性、性能测试、A800/B200/B300、PTXBench、FIBServe、KDA 或 GPU 队列时，使用 `$gpu-infra`。若该 Skill 尚未安装，先读取 `/absolute/path/to/gpu-infra/skills/gpu-infra/SKILL.md`，并以当前 checkout 的 `AGENTS.md`、CLI 和 task 合同为准。
+- 已有设备命令直接用节点安装的 `gpu-run`；无 daemon 时用 `kernelctl diagnose --broker-socket SOCKET`。仅在需要不可变候选与分阶段持久记录时使用 daemon，提交前运行 `kernelctl task-check`；多个候选优先使用异步 `submit-many` 或 `fleet-submit-many`，让 Agent 继续并行探索。提交后使用只读 `kernelctl diagnose [RUN_ID]` 查看 GPU、broker 队列和疑似卡住状态，不要通过长时间 `wait` 占住工作流。
 - `agent-gpu-broker` 是唯一 GPU 分配者。正确性检查可按 task 使用 `shared`；benchmark、sanitizer 和 profiler 必须使用 `exclusive`；不得绕过 broker 直接占卡。
 - task/evaluator 拥有 workload、正确性和原始测量。进程结束不等于正确；`invalid` 是 judge 拒绝，SSH、daemon、broker、超时或结果缺失是 `unknown`，不得把 unknown 当成功或空闲。
 - route 接受后固定到原 `(node_id, run_id)`，观察失败时不得自动换节点、重提或覆盖 receipt。只回收终态证据，artifact mirror 只作只读副本。
