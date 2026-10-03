@@ -12,6 +12,10 @@
 
 ### Fixed
 
+- 将固定 broker 修复保留在 0.7 维护线，兼容 B300-M3 冻结 NCU 消费者的
+  `0.7.*` 回执要求；部署前检查已在生产切换前阻止不兼容的 0.8 候选
+  （`agent-gpu-broker`）。
+
 - 固定 broker 后继版本，整合已核实的 B300-M3 `807aea5` 源码、主线 scheduler
   保护、探测限时、真实观察时龄与限定卡 FIFO ETA；保留 GPU scope、admission
   回执和现有 FIFO 分配（`agent-gpu-broker`、固定 broker CI）。
