@@ -157,4 +157,3 @@ unsupported, or timed-out client causes refusal before Run creation. This
 checks client capability only. The deployed client must send `run-scoped` so
 an older broker server refuses the request rather than ignoring the scope.
 Unscoped Tasks do not perform this probe.
-
