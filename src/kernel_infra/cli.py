@@ -184,6 +184,12 @@ def _task_check(args: argparse.Namespace) -> int:
                             else None
                         ),
                         "judge_identity": stage.judge_identity,
+                        **(
+                            {"allowed_gpu_ids": list(stage.resources.allowed_gpu_ids)}
+                            if stage.resources is not None
+                            and stage.resources.allowed_gpu_ids is not None
+                            else {}
+                        ),
                     }
                     for stage in task.stages
                 ],

@@ -72,6 +72,11 @@ class RunStore:
                             "estimate_s": stage.resources.estimate_s,
                             "queue_timeout_s": stage.resources.queue_timeout_s,
                             "run_timeout_s": stage.resources.run_timeout_s,
+                            **(
+                                {"allowed_gpu_ids": list(stage.resources.allowed_gpu_ids)}
+                                if stage.resources.allowed_gpu_ids is not None
+                                else {}
+                            ),
                         }
                         if stage.resources is not None
                         else None

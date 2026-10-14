@@ -58,6 +58,30 @@ bin/kernelctl frontier --task examples/a800_smoke/task.json
 `submit` and `submit-many` are non-blocking by default. Use `kernelctl wait
 <run-id>` only when a caller intentionally wants to wait.
 
+## Broker GPU scope
+
+A broker stage can restrict allocation to physical GPU indices with
+`resources.allowed_gpu_ids`, for example `"allowed_gpu_ids": [1]`. The field
+accepts a nonempty list of distinct nonnegative integers with at least
+`gpu_count` members. The Node preserves their order. The broker validates that
+the indices belong to its managed pool and remains the sole allocator.
+
+Omitting the field or setting it to `null` keeps the existing managed-pool
+request and serialization. Local and service stages cannot declare resources.
+`task-check` reports an explicit scope, and each accepted Run retains it in
+the Task snapshot and resolved request.
+
+Before accepting a scoped Task, the Node checks the configured `gpu-run` with
+`--allowed-gpus 1 --help`, bounded to five seconds. A missing, failing,
+unsupported, or timed-out client causes refusal before Run creation. This
+checks client capability only. The deployed client must send `run-scoped` so
+an older broker server refuses the request rather than ignoring the scope.
+Unscoped Tasks do not perform this probe.
+
+The bounded source successor uses version `0.3.2.dev0`. Its package metadata
+and runtime version agree. Historical qualification reports retain their
+original source and version identities.
+
 ## Crash fail-closed
 
 Every stage command runs behind a small pipe-lease execution guard. The daemon
