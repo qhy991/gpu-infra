@@ -7,6 +7,7 @@ import json
 import os
 import re
 import signal
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -77,6 +78,11 @@ class RunManager:
         effective_label = (label or candidate.name or task.task_id).strip()
         if not effective_label:
             raise ValueError("label must not be empty")
+        if any(
+            stage.resources is not None and stage.resources.allowed_gpu_ids is not None
+            for stage in task.stages
+        ):
+            self._check_scoped_client()
         state = self.store.create_run(
             task=task, candidate=candidate, label=effective_label
         )
@@ -86,6 +92,25 @@ class RunManager:
             self._run(run_id, task), name=f"kernelinfra-{run_id}"
         )
         return state
+
+    def _check_scoped_client(self) -> None:
+        try:
+            probe = subprocess.run(
+                [str(self.gpu_run), "--allowed-gpus", "1", "--help"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=5.0,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ContractError(
+                f"cannot verify scoped GPU requests with configured gpu-run: {exc}"
+            ) from exc
+        if probe.returncode != 0 or re.search(
+            r"(?<![\w-])--allowed-gpus(?![\w-])", probe.stdout
+        ) is None:
+            raise ContractError("configured gpu-run does not support --allowed-gpus")
 
     async def wait(self, run_id: str, timeout: float | None = None) -> dict[str, Any]:
         state = self.store.read_state(run_id)
@@ -396,6 +421,10 @@ class RunManager:
         ]
         if resources.queue_timeout_s is not None:
             command.extend(["--queue-timeout", str(resources.queue_timeout_s)])
+        if resources.allowed_gpu_ids is not None:
+            command.extend(
+                ["--allowed-gpus", ",".join(str(index) for index in resources.allowed_gpu_ids)]
+            )
         for key, value in environment.items():
             command.extend(["--env", f"{key}={value}"])
         command.extend(["--", *stage.command])

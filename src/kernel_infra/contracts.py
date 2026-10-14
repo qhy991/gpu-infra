@@ -83,6 +83,7 @@ class ResourceSpec:
     estimate_s: float | None
     queue_timeout_s: float | None
     run_timeout_s: float
+    allowed_gpu_ids: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -317,7 +318,7 @@ def _parse_stage(value: Any, *, index: int, task_dir: Path) -> StageSpec:
     _strict_keys(
         resources,
         required={"mode", "gpu_count", "run_timeout_s"},
-        optional={"estimate_s", "queue_timeout_s"},
+        optional={"estimate_s", "queue_timeout_s", "allowed_gpu_ids"},
         where=f"{where}.resources",
     )
     mode = _text(resources["mode"], f"{where}.resources.mode")
@@ -329,6 +330,25 @@ def _parse_stage(value: Any, *, index: int, task_dir: Path) -> StageSpec:
         if estimate_raw is None
         else _positive_number(estimate_raw, f"{where}.resources.estimate_s")
     )
+    gpu_count = _positive_int(
+        resources["gpu_count"], f"{where}.resources.gpu_count"
+    )
+    allowed_gpu_ids = resources.get("allowed_gpu_ids")
+    if allowed_gpu_ids is not None:
+        scope_where = f"{where}.resources.allowed_gpu_ids"
+        if (
+            not isinstance(allowed_gpu_ids, list)
+            or not allowed_gpu_ids
+            or any(type(index) is not int or index < 0 for index in allowed_gpu_ids)
+        ):
+            raise ContractError(
+                f"{scope_where} must be a nonempty list of nonnegative integers"
+            )
+        if len(set(allowed_gpu_ids)) != len(allowed_gpu_ids):
+            raise ContractError(f"{scope_where} must contain distinct GPU indices")
+        if len(allowed_gpu_ids) < gpu_count:
+            raise ContractError(f"{scope_where} must have at least gpu_count members")
+        allowed_gpu_ids = tuple(allowed_gpu_ids)
     return StageSpec(
         id=stage_id,
         kind=kind,
@@ -338,9 +358,7 @@ def _parse_stage(value: Any, *, index: int, task_dir: Path) -> StageSpec:
         command=tuple(command_value),
         resources=ResourceSpec(
             mode=mode,
-            gpu_count=_positive_int(
-                resources["gpu_count"], f"{where}.resources.gpu_count"
-            ),
+            gpu_count=gpu_count,
             estimate_s=estimate,
             queue_timeout_s=_optional_timeout(
                 resources.get("queue_timeout_s"),
@@ -349,6 +367,7 @@ def _parse_stage(value: Any, *, index: int, task_dir: Path) -> StageSpec:
             run_timeout_s=_positive_number(
                 resources["run_timeout_s"], f"{where}.resources.run_timeout_s"
             ),
+            allowed_gpu_ids=allowed_gpu_ids,
         ),
         service_deployment_id=None,
     )

@@ -1,12 +1,14 @@
 import asyncio
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
 
-from kernel_infra.contracts import load_task
+from kernel_infra.contracts import ContractError, load_task
 from kernel_infra.runner import RunManager
 from kernel_infra.store import RunStore
 
@@ -47,6 +49,18 @@ completed = subprocess.run(command, env=environment)
 print(f"[gpu-run] finished state=completed exit={completed.returncode}", file=sys.stderr, flush=True)
 raise SystemExit(completed.returncode)
 '''
+
+SCOPED_GPU_RUN = FAKE_GPU_RUN.replace(
+    "args = sys.argv[1:]",
+    '''import json
+from pathlib import Path
+args = sys.argv[1:]
+with (Path(__file__).parent / "client-argv.jsonl").open("a") as handle:
+    handle.write(json.dumps(args) + "\\n")
+if args == ["--allowed-gpus", "1", "--help"]:
+    print("usage: gpu-run [--allowed-gpus IDS]")
+    raise SystemExit(0)''',
+).replace('"--socket", "--label"', '"--allowed-gpus", "--socket", "--label"')
 
 
 JUDGE = r'''
@@ -150,6 +164,133 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
             json.dumps({"correct": correct, "candidate_ms": candidate_ms})
         )
         return path
+
+    def scoped_task(self):
+        value = task_value(self.root)
+        for stage in value["stages"]:
+            stage["resources"].update(
+                allowed_gpu_ids=[3, 1], estimate_s=None, queue_timeout_s=120
+            )
+        self.task_path.write_text(json.dumps(value))
+        return value
+
+    async def test_scoped_request_is_snapshotted_and_forwarded(self):
+        self.fake_gpu_run.write_text(SCOPED_GPU_RUN)
+        value = self.scoped_task()
+        state = self.manager.submit(
+            task_path=self.task_path, candidate=self.candidate("scoped"), label="scoped"
+        )
+        value["stages"][0]["resources"]["allowed_gpu_ids"] = [0]
+        self.task_path.write_text(json.dumps(value))
+        terminal = await self.manager.wait(state["run_id"], timeout=10)
+        self.assertEqual(terminal["state"], "completed")
+        run_dir = self.store.run_dir(state["run_id"])
+        task = json.loads((run_dir / "task.json").read_text())
+        request = json.loads((run_dir / "request.json").read_text())
+        for frozen in (task, request):
+            self.assertEqual(
+                [stage["resources"]["allowed_gpu_ids"] for stage in frozen["stages"]],
+                [[3, 1], [3, 1]],
+            )
+        calls = [json.loads(line) for line in
+                 (self.root / "client-argv.jsonl").read_text().splitlines()]
+        self.assertEqual(calls[0], ["--allowed-gpus", "1", "--help"])
+        self.assertEqual(len(calls), 3)
+        for call, mode in zip(calls[1:], ("shared", "exclusive")):
+            self.assertEqual(call[call.index("--allowed-gpus") + 1], "3,1")
+            self.assertLess(call.index("--allowed-gpus"), call.index("--"))
+            self.assertEqual(call[call.index("--mode") + 1], mode)
+            self.assertEqual(call[call.index("--gpu-count") + 1], "1")
+            self.assertEqual(call[call.index("--estimate") + 1], "unknown")
+            self.assertEqual(call[call.index("--queue-timeout") + 1], "120.0")
+            self.assertEqual(call[call.index("--run-timeout") + 1], "30.0")
+            self.assertEqual(call[call.index("--") + 1:], ["python3", "judge.py"])
+            self.assertIn(f"KERNELINFRA_RUN_ID={state['run_id']}", call)
+
+    async def test_unscoped_request_keeps_old_shape_and_argv(self):
+        task = load_task(self.task_path)
+        command = self.manager._broker_command(
+            task=task, stage=task.stages[0], label="old", environment={"KEY": "value"}
+        )
+        self.assertEqual(command, [
+            str(self.fake_gpu_run.resolve()), "--socket", str((self.root / "broker.sock").resolve()),
+            "--label", "ki:unit-task:correctness:old", "--mode", "shared",
+            "--gpu-count", "1", "--estimate", "600.0", "--run-timeout", "30.0",
+            "--env", "KEY=value", "--", "python3", "judge.py",
+        ])
+        state = self.manager.submit(
+            task_path=self.task_path, candidate=self.candidate("legacy")
+        )
+        terminal = await self.manager.wait(state["run_id"], timeout=10)
+        self.assertEqual(terminal["state"], "completed")
+        request = json.loads(
+            (self.store.run_dir(state["run_id"]) / "request.json").read_text()
+        )
+        self.assertEqual(request["stages"][0]["resources"], {
+            "mode": "shared", "gpu_count": 1, "estimate_s": 600.0,
+            "queue_timeout_s": None, "run_timeout_s": 30.0,
+        })
+        value = task_value(self.root)
+        for stage in value["stages"]:
+            stage["resources"]["allowed_gpu_ids"] = None
+        self.task_path.write_text(json.dumps(value))
+        state = self.manager.submit(
+            task_path=self.task_path, candidate=self.candidate("explicit-null")
+        )
+        terminal = await self.manager.wait(state["run_id"], timeout=10)
+        self.assertEqual(terminal["state"], "completed")
+        null_request = json.loads(
+            (self.store.run_dir(state["run_id"]) / "request.json").read_text()
+        )
+        self.assertEqual(
+            [stage["resources"] for stage in null_request["stages"]],
+            [stage["resources"] for stage in request["stages"]],
+        )
+
+    async def test_unsupported_clients_refuse_before_run_creation(self):
+        self.scoped_task()
+        candidate = self.candidate("refused")
+        for client in (
+            FAKE_GPU_RUN,
+            "#!/usr/bin/env python3\nprint('usage: --allowed-gpus-extra')\n",
+            "#!/usr/bin/env python3\nprint('--allowed-gpus')\nraise SystemExit(2)\n",
+        ):
+            with self.subTest(client=client):
+                self.fake_gpu_run.write_text(client)
+                with self.assertRaisesRegex(ContractError, "does not support"):
+                    self.manager.submit(task_path=self.task_path, candidate=candidate)
+                self.assertEqual(list(self.store.runs_dir.iterdir()), [])
+                self.assertEqual(self.store.list_states(), [])
+                self.assertEqual(self.manager._tasks, {})
+        self.fake_gpu_run.unlink()
+        with self.assertRaisesRegex(ContractError, "cannot verify"):
+            self.manager.submit(task_path=self.task_path, candidate=candidate)
+        self.assertEqual(list(self.store.runs_dir.iterdir()), [])
+
+    async def test_timed_out_client_refuses_before_run_creation(self):
+        self.scoped_task()
+        self.fake_gpu_run.write_text(
+            "#!/usr/bin/env python3\nimport os, time\nfrom pathlib import Path\n"
+            "(Path(__file__).parent / 'probe.pid').write_text(str(os.getpid()))\n"
+            "time.sleep(30)\n"
+        )
+        with self.assertRaisesRegex(ContractError, "cannot verify"):
+            self.manager.submit(task_path=self.task_path, candidate=self.candidate("timeout"))
+        self.assertEqual(list(self.store.runs_dir.iterdir()), [])
+        self.assertEqual(self.manager._tasks, {})
+        probe_pid = int((self.root / "probe.pid").read_text())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(probe_pid, 0)
+
+    async def test_task_check_exposes_declared_scope(self):
+        self.scoped_task()
+        checked = subprocess.run(
+            [sys.executable, "-m", "kernel_infra", "task-check", str(self.task_path)],
+            capture_output=True, text=True, check=True,
+        )
+        value = json.loads(checked.stdout)
+        self.assertEqual([stage["allowed_gpu_ids"] for stage in value["stages"]],
+                         [[3, 1], [3, 1]])
 
     async def test_submit_is_nonblocking_and_run_is_durable(self):
         state = self.manager.submit(
