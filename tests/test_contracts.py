@@ -51,6 +51,55 @@ def task_value(tmp: Path) -> dict:
 
 
 class ContractTests(unittest.TestCase):
+    def test_optional_gpu_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "task.json"
+            for scope, count, expected in (
+                (None, 1, None), ([1], 1, (1,)), ([3, 1], 2, (3, 1)),
+            ):
+                with self.subTest(scope=scope):
+                    value = task_value(root)
+                    value["stages"][0]["resources"].update(
+                        allowed_gpu_ids=scope, gpu_count=count
+                    )
+                    path.write_text(json.dumps(value))
+                    task = load_task(path)
+                    self.assertEqual(task.stages[0].resources.allowed_gpu_ids, expected)
+                    self.assertIsNone(task.stages[1].resources.allowed_gpu_ids)
+
+    def test_invalid_gpu_scopes_are_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "task.json"
+            for scope, count in (
+                ([], 1), ([1, 1], 1), ([-1], 1), ([True], 1), ([False], 1),
+                ([1.0], 1), (["1"], 1), (1, 1), ("1", 1), ({"gpu": 1}, 1),
+                ([1], 2),
+            ):
+                with self.subTest(scope=scope, count=count):
+                    value = task_value(root)
+                    value["stages"][0]["resources"].update(
+                        allowed_gpu_ids=scope, gpu_count=count
+                    )
+                    path.write_text(json.dumps(value))
+                    with self.assertRaisesRegex(ContractError, "allowed_gpu_ids"):
+                        load_task(path)
+
+    def test_non_broker_stage_refuses_gpu_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "task.json"
+            for execution in ("local", "service"):
+                with self.subTest(execution=execution):
+                    value = task_value(root)
+                    value["stages"] = value["stages"][:1]
+                    value["stages"][0]["execution"] = execution
+                    value["stages"][0]["resources"]["allowed_gpu_ids"] = [1]
+                    path.write_text(json.dumps(value))
+                    with self.assertRaisesRegex(ContractError, "resources must be omitted"):
+                        load_task(path)
+
     def test_checked_in_smoke_judge_identity_matches_source(self):
         root = Path(__file__).resolve().parents[1]
         evaluator = root / "examples" / "a800_smoke" / "evaluator.py"
