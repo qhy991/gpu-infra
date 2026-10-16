@@ -60,6 +60,9 @@ job's admission receipt and GPU scope before treating this as a stall. The
 currently deployed broker and the bundled submodule can differ; see the
 [dated B300-M3 audit](docs/b300-m3-audit-2026-10-03.md).
 
+The [dated C500 source and deployment status](docs/metax-c500-status-2026-10-16.md)
+records accepted MetaX software checks and the remaining device qualification.
+
 ## Optional staged evaluation
 
 Start a daemon only when you need durable task/candidate runs. Point it at the
