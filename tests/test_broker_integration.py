@@ -23,10 +23,11 @@ class BrokerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         sys.path.insert(0, str(BROKER_SRC))
         try:
             from agent_gpu_broker.broker import GpuBroker, JobSpec
+            from agent_gpu_broker.gpu import NvidiaSmiInventory
             from agent_gpu_broker.server import BrokerServer
         finally:
             sys.path.remove(str(BROKER_SRC))
-        class Inventory:
+        class Inventory(NvidiaSmiInventory):
             async def gpu_ids(self): return [0, 1]
             async def compute_pids(self): return {0: [], 1: []}
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:
